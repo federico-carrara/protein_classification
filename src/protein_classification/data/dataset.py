@@ -3,7 +3,6 @@ import json
 from pathlib import Path
 from typing import Callable, Literal, Optional, Union
 
-import cv2
 import numpy as np
 import pandas as pd
 import tifffile as tiff
