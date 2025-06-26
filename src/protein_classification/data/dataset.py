@@ -17,6 +17,8 @@ from protein_classification.data.utils import (
 from protein_classification.utils.typing import PathLike
 
 
+# TODO: deal with stratified/balanced sampling of the dataset
+
 class PreTrainingDataset(Dataset):
     """Dataset for pre-training of protein classification model.
     
@@ -103,6 +105,7 @@ class PreTrainingDataset(Dataset):
                 self.labels = json.load(f)
     
     def read_file(self, fpath: PathLike) -> torch.Tensor:
+        """Read an image file and preprocess it."""
         img: NDArray = self.imreader(fpath)
         
         # resize to img_size if necessary
