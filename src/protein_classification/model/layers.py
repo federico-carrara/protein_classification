@@ -97,22 +97,24 @@ class DenseNet(nn.Module):
         Number of layers in each pooling block.
     num_init_features : int
         Number of filters in the first convolution layer.
-    bn_size : int
-        Multiplicative factor for number of bottle neck layers
-        (i.e. bn_size * k features in the bottleneck layer).
+    bottleneck_size : int
+        Bottleneck size for the DenseNet blocks. This number is multiplied by the growth
+        factor to get the number of features in the bottleneck of each dense block.
+    dropout_block : bool
+        Whether to use the so-called dropout block before the classification head.
     dropout_p : float
-        Dropout probability after each dense layer.
+        Dropout probability for the model's dropout layers.
     """
     def __init__(
         self,
         in_channels: int,
         num_classes: int,
-        growth_rate: int = 32, 
+        growth_rate: int = 32,
         block_config: Sequence[int] = (6, 12, 24, 16),
         num_init_features: int = 64,
-        bn_size: int = 4,
-        dropout_layer: bool = False,
-        dropout_p: int = 0,
+        bottleneck_size: int = 4,
+        dropout_block: bool = True,
+        dropout_p: int = 0.5,
     ) -> None:
         super().__init__()
 
@@ -132,11 +134,11 @@ class DenseNet(nn.Module):
         self.dense_blocks = nn.ModuleList()
         for i, num_layers in enumerate(block_config):
             block = DenseBlock(
-                num_layers=num_layers, 
+                num_layers=num_layers,
                 num_input_features=num_features,
-                bn_size=bn_size, 
-                growth_rate=growth_rate, 
-                drop_rate=dropout_p # check this
+                bn_size=bottleneck_size,
+                growth_rate=growth_rate,
+                drop_rate=dropout_p # TODO: check this
             )
             self.dense_blocks.append(block)
             num_features = num_features + num_layers * growth_rate
@@ -155,18 +157,18 @@ class DenseNet(nn.Module):
 
         # Classifier head layers
         self.avgpool = nn.AdaptiveAvgPool2d(1)
-        if dropout_layer:
-            self.droput_layer = nn.Sequential(
+        if dropout_block:
+            self.droput_block = nn.Sequential(
                 nn.Flatten(),
-                nn.BatchNorm1d(num_features*2),
+                nn.BatchNorm1d(num_features * 2),
                 nn.Dropout1d(p=0.5),
-                nn.Linear(num_features*2, num_features),
+                nn.Linear(num_features * 2, num_features),
                 nn.ReLU(inplace=True),
                 nn.BatchNorm1d(num_features),
                 nn.Dropout1d(p=0.5),
             )
         else:
-            self.droput_layer = None
+            self.droput_block = None
         
         self.classifier = nn.Sequential(
             nn.Flatten(),
@@ -186,117 +188,9 @@ class DenseNet(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.first_conv(x)
         x = self.dense_blocks(x)
-        if self.droput_layer is not None:
+        if self.droput_block is not None:
             x = torch.concat([self.avgpool(x), self.avgpool(x)], dim=1)
-            x = self.droput_layer(x)
+            x = self.droput_block(x)
         else:
             x = self.avgpool(x)
         return self.classifier(x)
-
-
-def densenet121(pretrained=False, **kwargs):
-    r"""Densenet-121 model from
-    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6, 12, 24, 16),
-                     **kwargs)
-    if pretrained:
-        # '.'s are no longer allowed in module names, but pervious _DenseLayer
-        # has keys 'norm.1', 'relu.1', 'conv.1', 'norm.2', 'relu.2', 'conv.2'.
-        # They are also in the checkpoints in model_urls. This pattern is used
-        # to find such keys.
-        pattern = re.compile(
-            r'^(.*denselayer\d+\.(?:norm|relu|conv))\.((?:[12])\.(?:weight|bias|running_mean|running_var))$')
-        state_dict = model_zoo.load_url(model_urls['densenet121'])
-        for key in list(state_dict.keys()):
-            res = pattern.match(key)
-            if res:
-                new_key = res.group(1) + res.group(2)
-                state_dict[new_key] = state_dict[key]
-                del state_dict[key]
-        model.load_state_dict(state_dict)
-    return model
-
-
-def densenet169(pretrained=False, **kwargs):
-    r"""Densenet-169 model from
-    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6, 12, 32, 32),
-                     **kwargs)
-    if pretrained:
-        # '.'s are no longer allowed in module names, but pervious _DenseLayer
-        # has keys 'norm.1', 'relu.1', 'conv.1', 'norm.2', 'relu.2', 'conv.2'.
-        # They are also in the checkpoints in model_urls. This pattern is used
-        # to find such keys.
-        pattern = re.compile(
-            r'^(.*denselayer\d+\.(?:norm|relu|conv))\.((?:[12])\.(?:weight|bias|running_mean|running_var))$')
-        state_dict = model_zoo.load_url(model_urls['densenet169'])
-        for key in list(state_dict.keys()):
-            res = pattern.match(key)
-            if res:
-                new_key = res.group(1) + res.group(2)
-                state_dict[new_key] = state_dict[key]
-                del state_dict[key]
-        model.load_state_dict(state_dict)
-    return model
-
-
-def densenet201(pretrained=False, **kwargs):
-    r"""Densenet-201 model from
-    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6, 12, 48, 32),
-                     **kwargs)
-    if pretrained:
-        # '.'s are no longer allowed in module names, but pervious _DenseLayer
-        # has keys 'norm.1', 'relu.1', 'conv.1', 'norm.2', 'relu.2', 'conv.2'.
-        # They are also in the checkpoints in model_urls. This pattern is used
-        # to find such keys.
-        pattern = re.compile(
-            r'^(.*denselayer\d+\.(?:norm|relu|conv))\.((?:[12])\.(?:weight|bias|running_mean|running_var))$')
-        state_dict = model_zoo.load_url(model_urls['densenet201'])
-        for key in list(state_dict.keys()):
-            res = pattern.match(key)
-            if res:
-                new_key = res.group(1) + res.group(2)
-                state_dict[new_key] = state_dict[key]
-                del state_dict[key]
-        model.load_state_dict(state_dict)
-    return model
-
-
-def densenet161(pretrained=False, **kwargs):
-    r"""Densenet-161 model from
-    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = DenseNet(num_init_features=96, growth_rate=48, block_config=(6, 12, 36, 24),
-                     **kwargs)
-    if pretrained:
-        # '.'s are no longer allowed in module names, but pervious _DenseLayer
-        # has keys 'norm.1', 'relu.1', 'conv.1', 'norm.2', 'relu.2', 'conv.2'.
-        # They are also in the checkpoints in model_urls. This pattern is used
-        # to find such keys.
-        pattern = re.compile(
-            r'^(.*denselayer\d+\.(?:norm|relu|conv))\.((?:[12])\.(?:weight|bias|running_mean|running_var))$')
-        state_dict = model_zoo.load_url(model_urls['densenet161'])
-        for key in list(state_dict.keys()):
-            res = pattern.match(key)
-            if res:
-                new_key = res.group(1) + res.group(2)
-                state_dict[new_key] = state_dict[key]
-                del state_dict[key]
-        model.load_state_dict(state_dict)
-    return model
