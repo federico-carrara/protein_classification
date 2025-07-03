@@ -107,7 +107,6 @@ class DenseNet(nn.Module):
     """
     def __init__(
         self,
-        in_channels: int,
         num_classes: int,
         growth_rate: int = 32,
         block_config: Sequence[int] = (6, 12, 24, 16),
@@ -121,7 +120,7 @@ class DenseNet(nn.Module):
         # First convolution
         self.first_conv = nn.Sequential(
             nn.Conv2d(
-                in_channels, num_init_features, 
+                1, num_init_features, 
                 kernel_size=7, stride=2, padding=3, bias=False
             ),
             nn.BatchNorm2d(num_init_features),

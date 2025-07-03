@@ -4,13 +4,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from protein_classification.config import DenseNetConfig
+from protein_classification.config import DenseNetConfig, LossConfig
 
 
 class BioStructClassifier(pl.LightningModule):
-    def __init__(self, config: DenseNetConfig):
+    def __init__(
+        self, model_config: DenseNetConfig, loss_config: LossConfig
+    ) -> None:
         super().__init__()
-        self.save_hyperparameters()
+        self.model = 
 
     def forward(self, x):
         return self.model(x)
