@@ -109,9 +109,10 @@ class DenseNet(nn.Module):
         num_classes: int,
         growth_rate: int = 32, 
         block_config: Sequence[int] = (6, 12, 24, 16),
-        num_init_features: int = 64, 
-        bn_size: int = 4, 
-        drop_rate: int = 0, 
+        num_init_features: int = 64,
+        bn_size: int = 4,
+        dropout_layer: bool = False,
+        dropout_p: int = 0,
     ) -> None:
         super().__init__()
 
@@ -135,7 +136,7 @@ class DenseNet(nn.Module):
                 num_input_features=num_features,
                 bn_size=bn_size, 
                 growth_rate=growth_rate, 
-                drop_rate=drop_rate
+                drop_rate=dropout_p # check this
             )
             self.dense_blocks.append(block)
             num_features = num_features + num_layers * growth_rate
@@ -147,13 +148,30 @@ class DenseNet(nn.Module):
                 )
                 self.dense_blocks.append(trans)
                 num_features = num_features // 2
+        # final batch norm
+        self.dense_blocks.append(nn.BatchNorm2d(num_features))
+        self.dense_blocks.append(nn.ReLU(inplace=True))
         self.dense_blocks = nn.Sequential(*self.dense_blocks)
-        
-        # Final batch norm
-        self.final_batch_norm = nn.BatchNorm2d(num_features)
 
-        # Linear layer
-        self.classifier = nn.Linear(num_features, num_classes)
+        # Classifier head layers
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        if dropout_layer:
+            self.droput_layer = nn.Sequential(
+                nn.Flatten(),
+                nn.BatchNorm1d(num_features*2),
+                nn.Dropout1d(p=0.5),
+                nn.Linear(num_features*2, num_features),
+                nn.ReLU(inplace=True),
+                nn.BatchNorm1d(num_features),
+                nn.Dropout1d(p=0.5),
+            )
+        else:
+            self.droput_layer = None
+        
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(num_features, num_classes)    
+        )
 
         # Official init from torch repo
         for m in self.modules():
@@ -168,11 +186,12 @@ class DenseNet(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.first_conv(x)
         x = self.dense_blocks(x)
-        features = self.final_batch_norm(x)
-        out = F.relu(features, inplace=True)
-        out = F.adaptive_avg_pool2d(out,1).view(features.size(0), -1)
-        out = self.classifier(out)
-        return out
+        if self.droput_layer is not None:
+            x = torch.concat([self.avgpool(x), self.avgpool(x)], dim=1)
+            x = self.droput_layer(x)
+        else:
+            x = self.avgpool(x)
+        return self.classifier(x)
 
 
 def densenet121(pretrained=False, **kwargs):
