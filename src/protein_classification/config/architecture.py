@@ -53,7 +53,7 @@ class DenseNetConfig(BaseModel):
     block_config: list[int] = [6, 12, 24, 16]
     """Number of layers in each DenseNet block."""
     
-    bn_size: int = 4
+    bottleneck_size: int = 4
     """Bottleneck size for the DenseNet blocks. This number is multiplied by the growth
     factor to get the number of features in the bottleneck of each dense block."""
     

@@ -25,11 +25,11 @@ class LossConfig(BaseModel):
     """Type of the loss function to use."""
 
 
-def loss_factory(loss_type: Union[SupportedLosses, str]) -> AnyLoss:
+def loss_factory(config: LossConfig) -> AnyLoss:
     """Factory function to create loss instances based on the provided name."""
-    if loss_type == SupportedLosses.BINARY_FOCAL_LOSS:
-        return BinaryFocalLoss
-    elif loss_type == SupportedLosses.MULTICLASS_FOCAL_LOSS:
-        return MulticlassFocalLoss
+    if config.loss_type == SupportedLosses.BINARY_FOCAL_LOSS:
+        return BinaryFocalLoss(**config.model_dump())
+    elif config.loss_type == SupportedLosses.MULTICLASS_FOCAL_LOSS:
+        return MulticlassFocalLoss(**config.model_dump())
     else:
-        raise ValueError(f"Unsupported loss function: {loss_type}")
+        raise ValueError(f"Unsupported loss function: {config.loss_type}")
