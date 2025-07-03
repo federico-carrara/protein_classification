@@ -70,15 +70,15 @@ class MulticlassFocalLoss(nn.Module):
         Parameters
         ----------
         logits : torch.Tensor
-            The raw output logits from the model, shape [batch_size, num_classes].
+            The raw output logits from the model, shape [B, N], where N is the number
+            of classes.
         target : torch.Tensor
-            The ground truth labels, shape [batch_size]. Each value should be in the
-            range [0, num_classes-1].
+            The ground truth labels, shape [B], with sach value in the range [0, N-1].
         """
         log_probs = F.log_softmax(logits, dim=1)
         probs = torch.exp(log_probs)
 
-        # Gather the log-probability of the true class for each sample
+        # Get the log-probability of the true class for each sample
         log_pt = log_probs.gather(dim=1, index=target.unsqueeze(1)).squeeze(1)
         pt = probs.gather(dim=1, index=target.unsqueeze(1)).squeeze(1)
 
