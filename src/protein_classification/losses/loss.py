@@ -1,4 +1,5 @@
 import math
+from typing import Literal, Optional
 
 import torch
 import torch.nn.functional as F
@@ -7,13 +8,20 @@ from torch import nn
 from protein_classification.losses.loss_utils import get_hard_samples, lovasz_hinge
 
 
-class FocalLoss(nn.Module):
+class BinaryFocalLoss(nn.Module):
+    """Focal Loss for binary classification.
+    
+    This loss can also be used for multi-label classification by treating each class
+    independently.
+    """
     def __init__(self, gamma: float = 2) -> None:
         super().__init__()
         self.gamma = gamma
 
     def forward(self, logit: torch.Tensor, target: torch.Tensor, epoch: int = 0) -> float:
         target = target.float()
+        
+        # compute numerically stable BCE loss
         max_val = (-logit).clamp(min=0)
         loss = (
             logit -
@@ -21,11 +29,74 @@ class FocalLoss(nn.Module):
             max_val +
             ((-max_val).exp() + (-logit - max_val).exp()).log()
         )
+        
+        # compute the focal scaling factor
         invprobs = F.logsigmoid(-logit * (target * 2.0 - 1.0))
+        
+        # compute the focal loss
         loss = (invprobs * self.gamma).exp() * loss
         if len(loss.size()) == 2:
             loss = loss.sum(dim=1)
         return loss.mean()
+    
+    
+class MulticlassFocalLoss(nn.Module):
+    """Focal Loss for multi-class classification.
+    
+    Parameters
+    ----------
+    gamma : float, default=2.0
+        Focusing parameter. Default is 2.0.
+    class_weights : torch.Tensor, optional
+        Weights for each class. If provided, the loss will be weighted by these values.
+    reduction : Literal["mean", "sum"], default="mean"
+        Specifies the reduction to apply to the output: 'mean' for averaging the loss,
+        'sum' for summing the loss. If 'none', no reduction will be applied
+    """
+    def __init__(
+        self,
+        gamma: float = 2.0,
+        class_weights: Optional[torch.Tensor] = None,
+        reduction: Literal["mean", "sum"] = "mean"
+    ) -> None:
+        super().__init__()
+        self.gamma = gamma
+        self.class_weights = class_weights
+        self.reduction = reduction
+
+    def forward(self, logits: torch.Tensor, target: torch.Tensor) -> float:
+        """Forward pass for the Focal Loss.
+        
+        Parameters
+        ----------
+        logits : torch.Tensor
+            The raw output logits from the model, shape [batch_size, num_classes].
+        target : torch.Tensor
+            The ground truth labels, shape [batch_size]. Each value should be in the
+            range [0, num_classes-1].
+        """
+        log_probs = F.log_softmax(logits, dim=1)
+        probs = torch.exp(log_probs)
+
+        # Gather the log-probability of the true class for each sample
+        log_pt = log_probs.gather(dim=1, index=target.unsqueeze(1)).squeeze(1)
+        pt = probs.gather(dim=1, index=target.unsqueeze(1)).squeeze(1)
+
+        # Focal loss
+        loss = -((1 - pt) ** self.gamma) * log_pt
+
+        # Apply class weights if provided
+        if self.class_weights is not None:
+            class_weight = self.class_weights[target] # [B]
+            loss = loss * class_weight
+
+        # Reduction
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            return loss  # 'none'
 
 
 class HardLogLoss(nn.Module):
@@ -61,7 +132,7 @@ class SymmetricLovaszLoss(nn.Module):
 class FocalSymmetricLovaszHardLogLoss(nn.Module):
     def __init__(self):
         super().__init__()
-        self.focal_loss = FocalLoss()
+        self.focal_loss = MulticlassFocalLoss()
         self.slov_loss = SymmetricLovaszLoss()
         self.log_loss = HardLogLoss()
     
