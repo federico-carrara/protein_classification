@@ -4,18 +4,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from protein_classification.config import DenseNetConfig, LossConfig
+from protein_classification.config import AlgorithmConfig
 from protein_classification.config.losses import loss_factory
 from protein_classification.model import DenseNet
 
 
 class BioStructClassifier(pl.LightningModule):
-    def __init__(
-        self, model_config: DenseNetConfig, loss_config: LossConfig
-    ) -> None:
+    def __init__(self, config: AlgorithmConfig) -> None:
         super().__init__()
-        self.model = DenseNet(**model_config.model_dump())
-        self.loss_fn = loss_factory(loss_config)        
+        self.config = config
+        self.model = DenseNet(**config.architecture_config.model_dump())
+        self.loss_fn = loss_factory(config.loss_config)        
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.model(x)
@@ -41,5 +40,16 @@ class BioStructClassifier(pl.LightningModule):
         self.log('val_loss', loss, prog_bar=True)
         self.log('val_acc', acc, prog_bar=True)
 
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+    def configure_optimizers(self) -> dict:
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.config.lr)
+        # TODO: get params from config instead of hardcoding
+        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer,
+            milestones=[25, 30, 35, 40],
+            gamma=0.5
+        )
+        return {
+            'optimizer': optimizer,
+            'scheduler': lr_scheduler,
+            'monitor': 'val_loss',
+        }
