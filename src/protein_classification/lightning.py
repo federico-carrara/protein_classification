@@ -23,22 +23,36 @@ class BioStructClassifier(pl.LightningModule):
         self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> float:
         x, y = batch
-        logits = self(x)
+        logits: torch.Tensor = self.model(x)
         loss = self.loss_fn(logits, y)
         acc = (logits.argmax(dim=1) == y).float().mean()
-        self.log('train_loss', loss, prog_bar=True)
-        self.log('train_acc', acc, prog_bar=True)
+        # TODO: add precision, recall, F1
+        self.log(
+            'train_loss', loss, prog_bar=True,
+            on_step=True, on_batch=True, batch_size=x.size(0)
+        )
+        self.log(
+            'train_acc', acc, prog_bar=True,
+            on_step=True, on_batch=True, batch_size=x.size(0)
+        )
         return loss
 
     def validation_step(
         self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> None:
         x, y = batch
-        logits = self(x)
+        logits: torch.Tensor = self(x)
         loss = self.loss_fn(logits, y)
         acc = (logits.argmax(dim=1) == y).float().mean()
-        self.log('val_loss', loss, prog_bar=True)
-        self.log('val_acc', acc, prog_bar=True)
+        # TODO: add precision, recall, F1
+        self.log(
+            'val_loss', loss, prog_bar=True,
+            on_step=True, on_batch=True, batch_size=x.size(0)
+        )
+        self.log(
+            'val_acc', acc, prog_bar=True,
+            on_step=True, on_batch=True, batch_size=x.size(0)
+        )
 
     def configure_optimizers(self) -> dict:
         optimizer = torch.optim.Adam(self.parameters(), lr=self.config.lr)
