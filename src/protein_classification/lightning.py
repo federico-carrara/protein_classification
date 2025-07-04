@@ -31,13 +31,15 @@ class BioStructClassifier(pl.LightningModule):
         x, y = batch
         logits: torch.Tensor = self.model(x)
         loss = self.loss_fn(logits, y)
-        acc = (logits.argmax(dim=1) == y).float().mean()
-        f1 = self.f1_metric(logits, y)
         self.log(
             'train_loss', loss, prog_bar=True,
             on_step=True, on_batch=True,
             batch_size=x.size(0), logger=True
         )
+        
+        # calculate and log metrics
+        acc = (logits.argmax(dim=1) == y).float().mean()
+        f1 = self.f1_metric(logits, y)
         self.log(
             'train_accuracy', acc, prog_bar=True,
             on_step=True, on_batch=True,
@@ -56,13 +58,15 @@ class BioStructClassifier(pl.LightningModule):
         x, y = batch
         logits: torch.Tensor = self(x)
         loss = self.loss_fn(logits, y)
-        acc = (logits.argmax(dim=1) == y).float().mean()
-        f1 = self.f1_metric(logits, y)
         self.log(
             'val_loss', loss, prog_bar=True,
             on_step=True, on_batch=True,
             batch_size=x.size(0), logger=True
         )
+        
+        # calculate and log metrics
+        acc = (logits.argmax(dim=1) == y).float().mean()
+        f1 = self.f1_metric(logits, y)
         self.log(
             'val_accuracy', acc, prog_bar=True,
             on_step=True, on_batch=True,
