@@ -21,7 +21,7 @@ from protein_classification.utils.io import load_dataset_stats, get_log_dir, log
 
 # --- Set Configurations ---
 dataset_stats = load_dataset_stats(
-    stats_file="data_stats.json", protein_labels=["Mitochondria"]
+    stats_path="data_stats.json", labels=["Mitochondria"]
 )
 data_config = DataConfig(
     data_dir="/group/jug/federico/data/CellAtlas",

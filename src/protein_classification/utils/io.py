@@ -136,14 +136,14 @@ def get_log_dir(base_dir: PathLike, exp_name: str) -> str:
 
 
 def load_dataset_stats(
-    stats_dir: PathLike, labels: Sequence[str],
+    stats_path: PathLike, labels: Sequence[str],
 ) -> dict[str, int]:
     """Load the dataset statistics from a JSON file."""
-    assert isinstance(stats_dir, (Path, str)), (
+    assert isinstance(stats_path, (Path, str)), (
         "stats_dir must be a Path or a string."
     )
     
-    with open(stats_dir, "r") as f:
+    with open(stats_path, "r") as f:
         data_stats: dict = json.load(f)
 
     # extract statistics for the specified labels
