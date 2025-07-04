@@ -42,7 +42,12 @@ class PreTrainingDataset(Dataset):
         Function to read images from filepaths as `NDArray` arrays. 
         By default `tiff.imread`.
     transform : Optional[Callable], optional
-        ???
+        A function/transform that takes in an image and returns a transformed version.
+        Currently, the available transforms are:
+        - `train_augmentation`: applies random noise and geometric augmentations.
+        - `geometric_augmentation`: applies only random geometric augmentations.
+        - `noise_augmentation`: applies only random noise augmentations.
+        By default `None`, which means no transformation is applied.
     normalize : Literal['range', 'minmax', 'std'], optional
         The normalization method to apply to the images.
         - 'range': scales unsigned integer images into [0, 1] by dividing by the range.
