@@ -69,6 +69,7 @@ class PreTrainingDataset(Dataset):
         crop_size: Optional[int] = None,
         imreader: Callable = tiff.imread,
         transform: Optional[Callable] = None,
+        bit_depth: Optional[int] = None,
         normalize: Optional[Literal['minmax', 'std']] = None,
         random_crop: bool = False,
         return_label: bool = True,
@@ -80,6 +81,7 @@ class PreTrainingDataset(Dataset):
         self.img_size = img_size
         self.crop_size = crop_size
         self.transform = transform
+        self.bit_depth = bit_depth
         self.normalize = normalize
         self.imreader = imreader
         self.return_label = return_label
@@ -120,8 +122,9 @@ class PreTrainingDataset(Dataset):
         if self.img_size != self.crop_size:
             img = crop_img(img)
         
-        # normalize the image range into [0, 1]  
-        img = normalize_range(img)
+        # normalize the image range into [0, 1]
+        if self.bit_depth is not None:
+            img = normalize_range(img, self.bit_depth)
         
         return img 
 
