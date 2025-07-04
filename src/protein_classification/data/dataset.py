@@ -91,7 +91,7 @@ class PreTrainingDataset(Dataset):
         
         # crop to crop_size if necessary
         if self.img_size != self.crop_size:
-            img = crop_img(img)
+            img = crop_img(img, self.crop_size, self.random_crop)
         
         # normalize the image range into [0, 1]
         if self.bit_depth is not None:
