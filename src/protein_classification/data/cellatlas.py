@@ -68,6 +68,7 @@ def _get_filepaths_with_labels(
 def get_cellatlas_filepaths_and_labels(
     data_dir: PathLike,
     protein_labels: Sequence[str],
+    rel_data_path: PathLike = "./train_data_raw/",
     rel_labels_path: PathLike = "./labels_list.json",
     rel_fnames_labels_pairs_path: PathLike = "./train_labels.csv"
 ) -> tuple[list[tuple[Path, int]], dict[int, str]]:
@@ -86,7 +87,7 @@ def get_cellatlas_filepaths_and_labels(
     outputs = list[tuple[str, int]] = []
     for label, fpaths in fpaths_by_label.items():
         for fpath in fpaths:
-            fpath = Path(data_dir) / fpath
+            fpath = Path(data_dir) / rel_data_path / fpath
             outputs.append((f"{str(fpath)}_green.tif", label))
             outputs.append((f"{str(fpath)}_blue.tif", 0))
             outputs.append((f"{str(fpath)}_yellow.tif", 1))
