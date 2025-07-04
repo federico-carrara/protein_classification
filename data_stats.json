@@ -1,3 +1,11 @@
 {
-    
+    "Mitochondria": {
+        "timestamp": "04/07/25_22:14",
+        "num_samples": 6612,
+        "num_classes": 4,
+        "mean": 12.4757478039607,
+        "std": 30.350387499042412,
+        "min": 0.0,
+        "max": 255.0
+    }
 }

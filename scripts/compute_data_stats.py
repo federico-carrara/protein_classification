@@ -9,14 +9,14 @@ from protein_classification.utils.running_stats import calculate_dataset_stats
 
 
 DATA_DIR = "/group/jug/federico/data/CellAtlas"
-LABELS = ["Mitochondria"]
+LABELS = ["Mitochondria", "Cytokinetic bridge"]
 
 # get input file paths
 input_data, _ = get_cellatlas_filepaths_and_labels(
     data_dir=DATA_DIR, protein_labels=LABELS,
 )
 input_fpaths, _ = zip(*input_data)
-input_fpaths = input_fpaths
+input_fpaths = input_fpaths[:100]
 
 # compute running statistics
 data_stats = calculate_dataset_stats(filepaths=input_fpaths, imreader=tiff.imread)
@@ -34,7 +34,7 @@ data_stats_dict.update(data_stats)
 with open("data_stats.json", "r") as f:
     existing_stats: dict = json.load(f)
     existing_stats.update(
-        {"_".join(LABELS): data_stats_dict}
+        {"+".join(LABELS): data_stats_dict}
     )
 
 # write updated JSON

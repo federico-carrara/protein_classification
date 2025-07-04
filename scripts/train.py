@@ -16,10 +16,13 @@ from protein_classification.data.augmentations import (
 from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_labels
 from protein_classification.model import BioStructClassifier
 from protein_classification.utils.callbacks import get_callbacks
-from protein_classification.utils.io import log_configs, get_log_dir
+from protein_classification.utils.io import load_dataset_stats, get_log_dir, log_configs
 
 
 # --- Set Configurations ---
+dataset_stats = load_dataset_stats(
+    stats_file="data_stats.json", protein_labels=["Mitochondria"]
+)
 data_config = DataConfig(
     data_dir="/group/jug/federico/data/CellAtlas",
     labels=["Mitochondria"],
@@ -29,7 +32,7 @@ data_config = DataConfig(
     transform=train_augmentation,
     bit_depth=8,
     normalize="std",
-    dataset_stats=...,
+    dataset_stats=(dataset_stats["mean"], dataset_stats["std"]),
 )
 model_config = DenseNetConfig(
     architecture="densenet121",

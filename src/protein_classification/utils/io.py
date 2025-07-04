@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime
 from filelock import FileLock
@@ -132,3 +133,26 @@ def get_log_dir(base_dir: PathLike, exp_name: str) -> str:
     ldir = get_workdir(base_dir, exp_name)
     print(f"\nLogging to directory: {ldir}\n")
     return ldir
+
+
+def load_dataset_stats(
+    stats_dir: PathLike, labels: Sequence[str],
+) -> dict[str, int]:
+    """Load the dataset statistics from a JSON file."""
+    assert isinstance(stats_dir, (Path, str)), (
+        "stats_dir must be a Path or a string."
+    )
+    
+    with open(stats_dir, "r") as f:
+        data_stats: dict = json.load(f)
+
+    # extract statistics for the specified labels
+    key = "+".join(labels)
+    stats: dict = data_stats.get(key, None)
+    
+    return {
+        "mean": stats.get("mean", None),
+        "std": stats.get("std", None),
+        "min": stats.get("min", None),
+        "max": stats.get("max", None),
+    }
