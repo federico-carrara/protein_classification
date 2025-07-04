@@ -1,10 +1,5 @@
-import os
-import json
-from pathlib import Path
-from typing import Callable, Literal, Optional, Union
+from typing import Callable, Literal, Optional, Sequence
 
-import numpy as np
-import pandas as pd
 import tifffile as tiff
 import torch
 from numpy.typing import NDArray
@@ -25,16 +20,17 @@ class PreTrainingDataset(Dataset):
     inputs : Sequence[tuple[PathLike, int]]
         Sequence of tuples of image filename and label index (optional for test set)
         for each sample.
-    labels : dict[int, str]
-        Dictionary containing the all the labels for the classification task as
-        "ID: label_name".
     split : Literal['train', 'test']
         The split of the dataset, either 'train' or 'test'.
     img_size : int, optional
         The size of the input images, by default 2048. If the input images are not of this size,
         they will be resized to this size.
     crop_size : int, optional
-        The size of the crops on which the model is trained, by default 256.
+        The size of the crops used for training. If `None`, no cropping is applied.
+    random_crop : bool, optional
+        Whether to apply random cropping to the images. If `True`, crop size will be
+        randomly sampled between `crop_size` and `img_size` and applied to the images.
+        By default `False`.
     imreader : Callable, optional
         Function to read images from filepaths as `NDArray` arrays. 
         By default `tiff.imread`.
@@ -56,28 +52,24 @@ class PreTrainingDataset(Dataset):
         By default 'range'.
     dataset_stats : Optional[tuple[float, float]], optional
         Pre-computed dataset statistics (mean, std) or (min, max) for normalization.
-    random_crop : bool, optional
-        Whether to apply random cropping to the images. If `True`, crop size will be
-        randomly sampled between `crop_size` and `img_size` and applied to the images.
-        By default `False`.
     """
     def __init__(
         self,
-        inputs: Union[PathLike, list[tuple[PathLike, Optional[int]]]],
-        labels: Union[PathLike, dict[int, str]],
+        inputs: Sequence[tuple[PathLike, int]],
         split: Literal['train', 'test'],
-        img_size: int = 2048,
+        img_size: int = 768,
         crop_size: Optional[int] = None,
+        random_crop: bool = False,
         imreader: Callable = tiff.imread,
         transform: Optional[Callable] = None,
         bit_depth: Optional[int] = None,
         normalize: Optional[Literal['minmax', 'std']] = None,
         dataset_stats: Optional[tuple[float, float]] = None,
-        random_crop: bool = False,
         return_label: bool = True,
     ) -> None:
         """Constructor."""
         super().__init__()
+        self.inputs= inputs
         self.split = split
         self.img_size = img_size
         self.crop_size = crop_size
@@ -88,29 +80,6 @@ class PreTrainingDataset(Dataset):
         self.imreader = imreader
         self.return_label = return_label
         self.random_crop = random_crop
-        
-        # extract image paths and labels
-        if isinstance(inputs, (list, tuple)):
-            self.input_fpaths = [
-                os.path.join(self.data_dir, img_fname) for img_fname, _ in inputs
-            ]
-            self.input_labels = [label for _, label in inputs]
-        elif isinstance(inputs, (str, Path)):
-            assert str(inputs).endswith('.csv'), "Input file must be a CSV file."
-            inputs = pd.read_csv(inputs, header=None)
-            self.input_fpaths = [
-                os.path.join(self.data_dir, fname)
-                for fname in inputs.iloc[:, 0].tolist()
-            ]
-            self.input_labels = inputs.iloc[:, 1].tolist()
-            
-        # extract labels
-        if isinstance(labels, dict):
-            self.labels = labels
-        elif isinstance(labels, (str, Path)):
-            assert str(labels).endswith('.json'), "Labels file must be a JSON file."
-            with open(labels, 'r') as f:
-                self.labels = json.load(f)
     
     def read_file(self, fpath: PathLike) -> torch.Tensor:
         """Read an image file and preprocess it."""
@@ -137,16 +106,16 @@ class PreTrainingDataset(Dataset):
         return img 
 
     def __getitem__(self, idx: int):
+        fpath, label = self.inputs[idx]
         # TODO: replace with function that processes chunks of images at once (?)
-        image = self.read_file(self.input_fpaths[idx])
+        image = self.read_file(fpath)
         if self.transform is not None:
             image = self.transform(image)
    
         if self.return_label:
-            label = self.labels[idx]
             return image, label
         else:
             return image
 
     def __len__(self):
-        return len(self.input_fpaths)
+        return len(self.inputs)

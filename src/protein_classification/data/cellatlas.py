@@ -69,11 +69,11 @@ def get_cellatlas_filepaths_and_labels(
     data_dir: PathLike,
     protein_labels: Sequence[str],
     rel_labels_path: PathLike = "./labels_list.json",
-    rel_input_fnames_labels_path: PathLike = "./train_labels.csv"
+    rel_fnames_labels_pairs_path: PathLike = "./train_labels.csv"
 ) -> tuple[list[tuple[Path, int]], dict[int, str]]:
     """Get the file paths and labels for the Cell Atlas dataset."""
     labels_dict = _load_labels_dict(data_dir, rel_labels_path)
-    pairs_df = _load_fname_label_pairs(data_dir, rel_input_fnames_labels_path)
+    pairs_df = _load_fname_label_pairs(data_dir, rel_fnames_labels_pairs_path)
     protein_labels_ids = [labels_dict[label] for label in protein_labels if label in labels_dict]
     fpaths_by_label = _get_filepaths_with_labels(pairs_df, protein_labels_ids)
     

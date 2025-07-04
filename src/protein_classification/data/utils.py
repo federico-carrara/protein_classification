@@ -52,6 +52,7 @@ def _std_normalize(
 
 def crop_img(img: NDArray, crop_size: int, random_crop: bool) -> NDArray:
     """Crop a squared image to a square of size `crop_size`."""
+    # TODO: implement random cropping
     assert img.shape[0] == img.shape[1], "Image must be square."
     
     img_size = img.shape[0]
