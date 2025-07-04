@@ -12,11 +12,11 @@ DATA_DIR = "/group/jug/federico/data/CellAtlas"
 LABELS = ["Mitochondria"]
 
 # get input file paths
-input_data = get_cellatlas_filepaths_and_labels(
+input_data, _ = get_cellatlas_filepaths_and_labels(
     data_dir=DATA_DIR, protein_labels=LABELS,
 )
 input_fpaths, _ = zip(*input_data)
-input_fpaths = input_fpaths[:100]
+input_fpaths = input_fpaths
 
 # compute running statistics
 data_stats = calculate_dataset_stats(filepaths=input_fpaths, imreader=tiff.imread)

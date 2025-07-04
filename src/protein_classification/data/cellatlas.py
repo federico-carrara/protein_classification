@@ -38,7 +38,9 @@ def _load_fname_label_pairs(
     if not input_fnames_labels_path.exists():
         raise FileNotFoundError(f"Input file not found: {input_fnames_labels_path}")
     
-    pairs_df = pd.read_csv(input_fnames_labels_path, names=['filename', 'label'])
+    pairs_df = pd.read_csv(
+        input_fnames_labels_path, names=['filename', 'label'], header=0
+    )
     pairs_df['label'] = pairs_df['label'].apply(
         lambda x: [int(val) for val in x.split(" ")] if pd.notna(x) else []
     )
@@ -60,7 +62,7 @@ def _get_filepaths_with_labels(
         elif len(label_ids) == 1:
             label_id = label_ids[0]
             if label_id in labels:
-                filepaths_by_label[label_ids].append(Path(fname))
+                filepaths_by_label[label_id].append(Path(fname))
     
     return filepaths_by_label
 
@@ -84,7 +86,7 @@ def get_cellatlas_filepaths_and_labels(
         2: "Microtubules",
     }
     labels.update({labels_dict[label]: label for label in protein_labels})
-    outputs = list[tuple[str, int]] = []
+    outputs: list[tuple[str, int]] = []
     for label, fpaths in fpaths_by_label.items():
         for fpath in fpaths:
             fpath = Path(data_dir) / rel_data_path / fpath

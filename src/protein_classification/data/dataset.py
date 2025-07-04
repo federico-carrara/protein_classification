@@ -1,4 +1,5 @@
-from typing import Callable, Literal, Optional, Sequence
+from pathlib import Path
+from typing import Callable, Literal, Optional, Sequence, Union
 
 import tifffile as tiff
 import torch
@@ -8,7 +9,8 @@ from torch.utils.data.dataset import Dataset
 from protein_classification.data.utils import (
     crop_img, normalize_img, normalize_range, resize_img
 )
-from protein_classification.utils.typing import PathLike
+
+PathLike = Union[Path, str]
 
 
 # TODO: deal with stratified/balanced sampling of the dataset

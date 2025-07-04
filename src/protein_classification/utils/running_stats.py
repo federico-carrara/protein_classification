@@ -1,11 +1,12 @@
-from typing import Callable, Literal
+from pathlib import Path
+from typing import Callable, Literal, Union
 
 import numpy as np
 import tifffile as tiff
 from numpy.typing import NDArray
 from tqdm import tqdm
 
-from protein_classification.utils.typing import PathLike
+PathLike = Union[Path, str]
 
 
 def _compute_mean_std(
@@ -150,7 +151,7 @@ class WelfordStatistics:
         Parameters
         ----------
         array : NDArray
-            Input array.
+            Input array of shape (S, C, (Z), Y, X).
         sample_idx : int
             Current sample number.
         """
@@ -161,7 +162,7 @@ class WelfordStatistics:
         if self.sample_idx == 0:
             # Compute the mean and standard deviation
             stats = _compute_mean_std(array, self.strategy)
-            self.mean = stats.means
+            self.mean = stats[0]
             # Initialize the count and m2 with zero-valued arrays of shape (C,)
             self.count, self.mean, self.m2 = update_iterative_stats(
                 count=np.zeros(array.shape[1]),
@@ -266,7 +267,7 @@ def calculate_dataset_stats(
     welford_stats = WelfordStatistics("global")
     minmax_stats = RunningMinMaxStatistics("global")
     for fpath in tqdm(filepaths):
-        img = imreader(fpath)
+        img = imreader(fpath)[np.newaxis, np.newaxis, ...]
         welford_stats.update(img, num_samples)
         minmax_stats.update(img)
         num_samples += 1
@@ -278,8 +279,8 @@ def calculate_dataset_stats(
     image_means, image_stds = welford_stats.finalize()
     image_mins, image_maxs = minmax_stats.finalize()
     return {
-        "mean": image_means,
-        "std": image_stds,
-        "min": image_mins,
-        "max": image_maxs,
+        "mean": image_means.item(),
+        "std": image_stds.item(),
+        "min": image_mins.item(),
+        "max": image_maxs.item(),
     }
