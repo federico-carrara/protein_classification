@@ -1,4 +1,5 @@
 import os
+from typing import Literal
 
 import numpy as np
 import torch
@@ -16,6 +17,37 @@ def normalize_range(
         f" Max value: {np.max(img)}, expected <= {max_val}."
     )
     return img / max_val
+
+
+def normalize_img(
+    img: NDArray, method: Literal["minmax", "std"], dataset_stats: tuple[float, float]
+) -> NDArray:
+    """Normalize an image using the specified method."""
+    assert dataset_stats is not None, (
+        "Dataset statistics must be provided for normalization."
+    )
+    if method == 'minmax':
+        min_val, max_val = dataset_stats
+        return _minmax_normalize(img, min_val, max_val)
+    elif method == 'std':
+        mean, std = dataset_stats
+        return _std_normalize(img, mean, std)
+    else:
+        raise ValueError(f"Unavailable normalization method: {method}")
+
+
+def _minmax_normalize(
+    img: NDArray, min_val: float, max_val: float
+) -> NDArray:
+    """Apply min-max normalization to an image using dataset statistics."""
+    return (img - min_val) / (max_val - min_val)
+
+
+def _std_normalize(
+    img: NDArray, mean: float, std: float
+) -> NDArray:
+    """Apply standard normalization to an image using dataset statistics."""
+    return (img - mean) / std
 
 
 def crop_img(img: NDArray, crop_size: int, random_crop: bool) -> NDArray:

@@ -11,13 +11,12 @@ from numpy.typing import NDArray
 from torch.utils.data.dataset import Dataset
 
 from protein_classification.data.utils import (
-    crop_img, normalize_range, resize_img
+    crop_img, normalize_img, normalize_range, resize_img
 )
 from protein_classification.utils.typing import PathLike
 
 
 # TODO: deal with stratified/balanced sampling of the dataset
-
 class PreTrainingDataset(Dataset):
     """Dataset for pre-training of protein classification model.
     
@@ -48,12 +47,17 @@ class PreTrainingDataset(Dataset):
         - `geometric_augmentation`: applies only random geometric augmentations.
         - `noise_augmentation`: applies only random noise augmentations.
         By default `None`, which means no transformation is applied.
+    bit_depth : Optional[int], optional
+        The bit depth of the input images. If specified, the images will be normalized
+        to the range [0, 1] based on the bit depth. If `None`, no range normalization
+        is applied. By default `None`.
     normalize : Literal['range', 'minmax', 'std'], optional
         The normalization method to apply to the images.
-        - 'range': scales unsigned integer images into [0, 1] by dividing by the range.
         - 'minmax': scales images to [0, 1] based on the min and max values.
         - 'std': standardizes images to have zero mean and unit variance.
         By default 'range'.
+    dataset_stats : Optional[tuple[float, float]], optional
+        Pre-computed dataset statistics (mean, std) or (min, max) for normalization.
     random_crop : bool, optional
         Whether to apply random cropping to the images. If `True`, crop size will be
         randomly sampled between `crop_size` and `img_size` and applied to the images.
@@ -71,6 +75,7 @@ class PreTrainingDataset(Dataset):
         transform: Optional[Callable] = None,
         bit_depth: Optional[int] = None,
         normalize: Optional[Literal['minmax', 'std']] = None,
+        dataset_stats: Optional[tuple[float, float]] = None,
         random_crop: bool = False,
         return_label: bool = True,
     ) -> None:
@@ -83,6 +88,7 @@ class PreTrainingDataset(Dataset):
         self.transform = transform
         self.bit_depth = bit_depth
         self.normalize = normalize
+        self.dataset_stats = dataset_stats
         self.imreader = imreader
         self.return_label = return_label
         self.random_crop = random_crop
@@ -125,6 +131,12 @@ class PreTrainingDataset(Dataset):
         # normalize the image range into [0, 1]
         if self.bit_depth is not None:
             img = normalize_range(img, self.bit_depth)
+            
+        # normalize the image using the specified method
+        if self.normalize is not None:
+            img = normalize_img(
+                img, self.normalize, self.dataset_stats
+            )
         
         return img 
 
