@@ -22,13 +22,11 @@ class PreTrainingDataset(Dataset):
     
     Parameters
     ----------
-    data_dir : PathLike
-        Path to the directory containing the dataset.
-    inputs : Union[PathLike, Sequence[tuple[PathLike, int]]]
-        Path to a csv file containing the input images filenames and labels, or tuples
-        of image filename and label index (optional for test set) for each sample.
-    labels : PathLike
-        Path to a json file containing the all the labels for the classification task as
+    inputs : Sequence[tuple[PathLike, int]]
+        Sequence of tuples of image filename and label index (optional for test set)
+        for each sample.
+    labels : dict[int, str]
+        Dictionary containing the all the labels for the classification task as
         "ID: label_name".
     split : Literal['train', 'test']
         The split of the dataset, either 'train' or 'test'.
@@ -65,7 +63,6 @@ class PreTrainingDataset(Dataset):
     """
     def __init__(
         self,
-        data_dir: PathLike,
         inputs: Union[PathLike, list[tuple[PathLike, Optional[int]]]],
         labels: Union[PathLike, dict[int, str]],
         split: Literal['train', 'test'],
@@ -81,7 +78,6 @@ class PreTrainingDataset(Dataset):
     ) -> None:
         """Constructor."""
         super().__init__()
-        self.data_dir = data_dir
         self.split = split
         self.img_size = img_size
         self.crop_size = crop_size
