@@ -1,5 +1,4 @@
 import os
-from typing import Literal
 
 import numpy as np
 import torch
@@ -7,29 +6,16 @@ from numpy.typing import NDArray
 from skimage.transform import resize
 
 
-def normalize_img(
-    img: NDArray, norm_type: Literal['range', 'minmax', 'std']
+def normalize_range(
+    img: NDArray, bit_depth: int = 8
 ) -> NDArray:
-    """Normalize an image based on the specified normalization method."""
-    if norm_type == 'range':
-        if img.dtype == np.uint8:
-            img = img / 2**8 - 1
-        elif img.dtype == np.uint16:
-            img = img / 2**16 - 1
-        elif img.dtype == np.uint32:
-            img = img / 2**32 - 1
-        else:
-            raise ValueError(
-                f"""Range normalization is only supported for unsigned integer dtype.
-                Found dtype: {img.dtype}"""
-            )
-    elif norm_type == 'minmax':
-        # FIXME: requires dataset statistics for robustness
-        img = (img - img.min()) / (img.max() - img.min())
-    elif norm_type == 'std':
-        # FIXME: requires dataset statistics for robustness
-        img = (img - img.mean()) / img.std()
-    return img
+    """Normalize the intensity range of an `uint` image between [0, 1]."""
+    max_val = 2**bit_depth - 1
+    assert np.max(img) <= max_val, (
+        "Image values exceed the maximum for the specified bit depth."
+        f" Max value: {np.max(img)}, expected <= {max_val}."
+    )
+    return img / max_val
 
 
 def crop_img(img: NDArray, crop_size: int, random_crop: bool) -> NDArray:

@@ -11,7 +11,7 @@ from numpy.typing import NDArray
 from torch.utils.data.dataset import Dataset
 
 from protein_classification.data.utils import (
-    crop_img, normalize_img, resize_img
+    crop_img, normalize_range, resize_img
 )
 from protein_classification.utils.typing import PathLike
 
@@ -69,7 +69,7 @@ class PreTrainingDataset(Dataset):
         crop_size: Optional[int] = None,
         imreader: Callable = tiff.imread,
         transform: Optional[Callable] = None,
-        normalize: Literal['range', 'minmax', 'std'] = 'range',
+        normalize: Optional[Literal['minmax', 'std']] = None,
         random_crop: bool = False,
         return_label: bool = True,
     ) -> None:
@@ -120,13 +120,13 @@ class PreTrainingDataset(Dataset):
         if self.img_size != self.crop_size:
             img = crop_img(img)
         
-        # normalize the image
-        img = normalize_img(img)
+        # normalize the image range into [0, 1]  
+        img = normalize_range(img)
         
         return img 
 
     def __getitem__(self, idx: int):
-        # TODO: replace with function that processes chunks of images at once
+        # TODO: replace with function that processes chunks of images at once (?)
         image = self.read_file(self.input_fpaths[idx])
         if self.transform is not None:
             image = self.transform(image)
