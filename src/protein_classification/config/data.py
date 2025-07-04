@@ -3,7 +3,7 @@ from typing import Callable, Literal, Optional, Sequence, Union
 
 import tifffile as tiff
 from numpy.typing import NDArray
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from torch import Tensor
 
 PathLike = Union[Path, str]
@@ -37,7 +37,7 @@ class DataConfig(BaseModel):
     """Whether to apply random cropping to the images. If `False`, center cropping is
     applied."""
     
-    imreader: Callable[[PathLike], Union[NDArray, Tensor]] = tiff.imread
+    imreader: Callable[[PathLike], Union[NDArray, Tensor]] = Field(tiff.imread, exclude=True)
     """Function to read images from filepaths as `NDArray` arrays. By default `tiff.imread`."""
     
     transform: Optional[Callable[[NDArray], NDArray]] = None
@@ -63,7 +63,3 @@ class DataConfig(BaseModel):
     dataset_stats: Optional[tuple[float, float]] = None
     """Pre-computed dataset statistics (mean, std) or (min, max) for normalization.
     If `normalize` is specified, this must also be provided."""
-    
-    return_label: bool = True
-    """Whether to return the label along with the image. If `False`, only the image
-    is returned."""

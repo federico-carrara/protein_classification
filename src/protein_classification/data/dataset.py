@@ -80,6 +80,11 @@ class PreTrainingDataset(Dataset):
         self.imreader = imreader
         self.return_label = return_label
         self.random_crop = random_crop
+        
+        # Force transform to be None for test split
+        if self.split == 'test':
+            self.transform = None
+            self.random_crop = False
     
     def read_file(self, fpath: PathLike) -> torch.Tensor:
         """Read an image file and preprocess it."""

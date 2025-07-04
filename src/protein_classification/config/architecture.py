@@ -44,7 +44,7 @@ class DenseNetConfig(BaseModel):
     num_classes: int
     """Number of output classes for classification."""
     
-    num_init_features: int
+    num_init_features: int = 64
     """Number of initial features after the first convolution layer."""
     
     growth_rate: int = 32
