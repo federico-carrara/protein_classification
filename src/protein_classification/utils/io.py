@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 from filelock import FileLock
 from pathlib import Path
-from typing import Optional, Sequence, Union
+from typing import Literal, Optional, Sequence, Union
 
 from pydantic import BaseModel
 from pytorch_lightning.loggers import WandbLogger
@@ -65,6 +65,32 @@ def log_configs(
     """   
     for config, name in zip(configs, names):
         _log_config(config, name, log_dir, logger)
+        
+
+def load_config(
+    config_fpath: str, 
+    config_type: Literal['algorithm', 'data']
+) -> dict:
+    """Load a configuration file.
+    
+    Parameters
+    ----------
+    config_fpath : str
+        Configuration file path.
+    config_type : Literal['algorithm', 'data']
+        Configuration type.
+        
+    Returns
+    -------
+    dict
+        Configuration as a dictionary.
+    """
+    fpath = os.path.join(config_fpath, f'{config_type}_config.json')
+    if os.path.isfile(fpath):
+        with open(fpath) as f:
+            return json.load(f)
+    else:
+        raise FileNotFoundError(f"Config file not found in {config_fpath}.")
 
 
 def _get_new_version_dir(model_dir: Union[str, Path]) -> Path:

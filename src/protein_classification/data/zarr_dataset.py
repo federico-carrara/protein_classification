@@ -66,15 +66,19 @@ class ZarrDataset(Dataset):
     
     def __getitem__(self, idx: int) -> Union[torch.Tensor, tuple[torch.Tensor, int]]:
         """Get an item from the dataset."""
-        image = torch.from_numpy(self.images[idx], dtype=torch.float32)
+        image = torch.from_numpy(self.images[idx]).to(torch.float32)
         label = int(self.labels[idx])
         
         if self.crop_size is not None and self.crop_size < image.shape[-1]:
             image = crop_img(image, self.crop_size, self.random_crop)
         
+        # Add channel dimension
+        if image.ndim == 2:
+            image = image.unsqueeze(0)
+        
         if self.transform is not None:
             image = self.transform(image)
-   
+        
         if self.return_label:
             return image, label
         else:

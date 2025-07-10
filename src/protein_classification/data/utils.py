@@ -81,7 +81,8 @@ def train_test_split(
     """Split the dataset into training and testing sets."""
     n_train = int(train_ratio * len(inputs))
     if not deterministic:
-        inputs = np.random.permutation(len(inputs))
+        random_idxs = np.random.permutation(len(inputs))
+        inputs = [inputs[i] for i in random_idxs]
     train_data = inputs[:n_train]
     test_data = inputs[n_train:]
     return train_data, test_data

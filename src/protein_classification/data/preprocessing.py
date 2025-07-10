@@ -74,15 +74,15 @@ class ZarrPreprocessor:
         if img.shape != (self.img_size, self.img_size):
             img = resize_img(img, self.img_size)
         
-        return img.astype(np.float32)[None, ...] # add channel dim
+        return img.astype(np.float32)
     
     def run(self) -> Path:
         num_samples = len(self.inputs)
         h, w = self.img_size, self.img_size
-        shape = (num_samples, 1, h, w)
+        shape = (num_samples, h, w)
 
         compressor = Blosc(cname="zstd", clevel=3)
-        chunks = (self.chunk_size, 1, h, w)
+        chunks = (self.chunk_size, h, w)
 
         # Create a group
         # TODO: add LRUCache for chunks
