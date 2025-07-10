@@ -17,9 +17,7 @@ class BioStructClassifier(pl.LightningModule):
         
         # metrics
         self.f1_metric = MulticlassF1Score(
-            num_classes=config.architecture_config.num_classes,
-            average='macro',
-            compute_on_step=False
+            num_classes=config.architecture_config.num_classes, average='macro'
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -56,7 +54,7 @@ class BioStructClassifier(pl.LightningModule):
         self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> None:
         x, y = batch
-        logits: torch.Tensor = self(x)
+        logits: torch.Tensor = self.model(x)
         loss = self.loss_fn(logits, y)
         self.log(
             'val_loss', loss, prog_bar=True,
@@ -82,7 +80,7 @@ class BioStructClassifier(pl.LightningModule):
         pass
 
     def configure_optimizers(self) -> dict:
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.config.lr)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.config.training_config.lr)
         # TODO: get params from config instead of hardcoding
         lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
             optimizer,
@@ -92,5 +90,5 @@ class BioStructClassifier(pl.LightningModule):
         return {
             'optimizer': optimizer,
             'scheduler': lr_scheduler,
-            'monitor': 'val_loss',
+            # 'monitor': 'val_loss',
         }

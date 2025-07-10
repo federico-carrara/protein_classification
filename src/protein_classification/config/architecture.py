@@ -68,14 +68,14 @@ class DenseNetConfig(BaseModel):
         """Set the architecture based on the provided type."""
         if self.architecture == "densenet121":
             for key, value in DENSENET121.items():
-                setattr(self, key, value)
+                object.__setattr__(self, key, value)
         elif self.architecture == "densenet161":
             for key, value in DENSENET161.items():
-                setattr(self, key, value)
+                object.__setattr__(self, key, value)
         elif self.architecture == "densenet169":
             for key, value in DENSENET169.items():
-                setattr(self, key, value)
+                object.__setattr__(self, key, value)
         elif self.architecture == "densenet201":
             for key, value in DENSENET201.items():
-                setattr(self, key, value)
+                object.__setattr__(self, key, value)
         return self

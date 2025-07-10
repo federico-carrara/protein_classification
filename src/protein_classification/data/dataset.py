@@ -113,12 +113,13 @@ class PreTrainingDataset(Dataset):
                 img, self.normalize, self.dataset_stats
             )
         
-        return img 
-
+        return torch.tensor(img, dtype=torch.float32)[None, ...] # add channel dim
+    
     def __getitem__(self, idx: int):
         fpath, label = self.inputs[idx]
         # TODO: replace with function that processes chunks of images at once (?)
         image = self.read_file(fpath)
+        
         if self.transform is not None:
             image = self.transform(image)
    

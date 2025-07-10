@@ -1,6 +1,7 @@
 import os
 import socket
 
+import torch
 import wandb
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import WandbLogger
@@ -17,6 +18,9 @@ from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_la
 from protein_classification.model import BioStructClassifier
 from protein_classification.utils.callbacks import get_callbacks
 from protein_classification.utils.io import load_dataset_stats, get_log_dir, log_configs
+
+LOGGING = False  # Set to True to enable logging
+torch.set_float32_matmul_precision('medium')
 
 
 # --- Set Configurations ---
@@ -40,17 +44,11 @@ model_config = DenseNetConfig(
     num_init_features=64,
     dropout_block=True,
 )
-loss_config = LossConfig(name="multiclass_focal_loss")
+loss_config = LossConfig(loss_type="multiclass_focal_loss")
 exp_name = f"DenseNet121_{model_config.num_classes}Cl_{data_config.labels[0]}" # TODO: make it more general
 log_dir=get_log_dir(
     base_dir="/group/jug/federico/classification_training",
     exp_name=exp_name,
-)
-algo_config = AlgorithmConfig(
-    mode="train",
-    log_dir=log_dir,
-    architecture_config=model_config,
-    loss_config=loss_config,
 )
 training_config = TrainingConfig(
     max_epochs=100,
@@ -59,9 +57,16 @@ training_config = TrainingConfig(
     gradient_clip_val=1.0,
     gradient_clip_algorithm="norm",
 )
+algo_config = AlgorithmConfig(
+    mode="train",
+    log_dir=log_dir,
+    architecture_config=model_config,
+    loss_config=loss_config,
+    training_config=training_config,
+)
 
 # --- Data Setup ---
-input_data = get_cellatlas_filepaths_and_labels(
+input_data, _ = get_cellatlas_filepaths_and_labels(
     data_dir=data_config.data_dir, protein_labels=data_config.labels,
 )
 train_dataset = PreTrainingDataset(
@@ -78,33 +83,36 @@ val_dataset = PreTrainingDataset(
 )
 train_dloader = DataLoader(
     train_dataset,
-    batch_size=algo_config.batch_size,
+    batch_size=training_config.batch_size,
     shuffle=True,
-    num_workers=3,
+    num_workers=0,
     pin_memory=True,
     drop_last=True,
 )
 val_dloader = DataLoader(
     val_dataset,
-    batch_size=algo_config.batch_size,
+    batch_size=training_config.batch_size,
     shuffle=False,
-    num_workers=3,
+    num_workers=0,
     pin_memory=True,
     drop_last=False,
 )
 
 # --- Initialize Logger + Log configs ---
-logger = WandbLogger(
-    name=os.path.join(socket.gethostname(), exp_name),
-    save_dir=algo_config.log_dir,
-    project=algo_config.wandb_project,
-)
-log_configs(
-    configs=[algo_config, data_config],
-    names=["algorithm", "data", "training", "exp_params", "dataset"],
-    log_dir=algo_config.log_dir,
-    logger=logger,
-)
+if LOGGING:
+    logger = WandbLogger(
+        name=os.path.join(socket.gethostname(), exp_name),
+        save_dir=algo_config.log_dir,
+        project=algo_config.wandb_project,
+    )
+    log_configs(
+        configs=[algo_config, data_config],
+        names=["algorithm", "data", "training", "exp_params", "dataset"],
+        log_dir=algo_config.log_dir,
+        logger=logger,
+    )
+else:
+    logger = None
 
 # --- Setup Model & Trainer ---
 model = BioStructClassifier(config=algo_config)

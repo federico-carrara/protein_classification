@@ -114,6 +114,7 @@ class DenseNet(nn.Module):
         bottleneck_size: int = 4,
         dropout_block: bool = True,
         dropout_p: int = 0.5,
+        *_args, **kwargs
     ) -> None:
         super().__init__()
 
@@ -137,7 +138,7 @@ class DenseNet(nn.Module):
                 num_input_features=num_features,
                 bn_size=bottleneck_size,
                 growth_rate=growth_rate,
-                drop_rate=dropout_p # TODO: check this
+                dropout_p=dropout_p # TODO: check this
             )
             self.dense_blocks.append(block)
             num_features = num_features + num_layers * growth_rate
@@ -177,7 +178,7 @@ class DenseNet(nn.Module):
         # Official init from torch repo
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal(m.weight.data)
+                nn.init.kaiming_normal_(m.weight.data)
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()

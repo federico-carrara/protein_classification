@@ -57,7 +57,8 @@ class MulticlassFocalLoss(nn.Module):
         self,
         gamma: float = 2.0,
         class_weights: Optional[torch.Tensor] = None,
-        reduction: Literal["mean", "sum"] = "mean"
+        reduction: Literal["mean", "sum"] = "mean",
+        *args, **kwargs
     ) -> None:
         super().__init__()
         self.gamma = gamma

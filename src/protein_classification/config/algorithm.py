@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict
 
 from protein_classification.config.architecture import DenseNetConfig
 from protein_classification.config.losses import LossConfig
+from protein_classification.config.training import TrainingConfig
 
 PathLike = Path | str
 
@@ -23,6 +24,10 @@ class AlgorithmConfig(BaseModel):
     
     loss_config: LossConfig
     """Configuration for the loss function used in training."""
+    
+    training_config: TrainingConfig
+    """Configuration for the training process, e.g., epochs, optimizer, and scheduler
+    settings."""
     
     mode: Literal["train", "eval"]
     """Mode of operation, either 'train' for training or 'eval' for evaluation."""

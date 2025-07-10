@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Union
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from protein_classification.losses import BinaryFocalLoss, MulticlassFocalLoss
 AnyLoss = Union[BinaryFocalLoss, MulticlassFocalLoss]
@@ -23,6 +23,16 @@ class LossConfig(BaseModel):
     
     loss_type: Union[str, SupportedLosses]
     """Type of the loss function to use."""
+    
+    @field_validator("loss_type")
+    def validate_loss_type(cls, value: Union[str, SupportedLosses]) -> SupportedLosses:
+        """Validate and convert the loss type to SupportedLosses enum."""
+        if isinstance(value, SupportedLosses):
+            return value
+        try:
+            return SupportedLosses(value)
+        except ValueError:
+            raise ValueError(f"Unsupported loss function: {value}")
 
 
 def loss_factory(config: LossConfig) -> AnyLoss:
