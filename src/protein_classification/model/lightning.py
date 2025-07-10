@@ -40,12 +40,12 @@ class BioStructClassifier(pl.LightningModule):
         f1 = self.f1_metric(logits, y)
         self.log(
             'train_accuracy', acc, prog_bar=True,
-            on_step=True, on_batch=True,
+            on_step=True, on_epoch=True,
             batch_size=x.size(0), logger=True
         )
         self.log(
             'train_f1', f1, prog_bar=True,
-            on_step=True, on_batch=True,
+            on_step=True, on_epoch=True,
             batch_size=x.size(0), logger=True
         )
         return loss
@@ -58,8 +58,7 @@ class BioStructClassifier(pl.LightningModule):
         loss = self.loss_fn(logits, y)
         self.log(
             'val_loss', loss, prog_bar=True,
-            on_step=True, on_batch=True,
-            batch_size=x.size(0), logger=True
+            on_epoch=True, batch_size=x.size(0), logger=True
         )
         
         # calculate and log metrics
@@ -67,13 +66,11 @@ class BioStructClassifier(pl.LightningModule):
         f1 = self.f1_metric(logits, y)
         self.log(
             'val_accuracy', acc, prog_bar=True,
-            on_step=True, on_batch=True,
-            batch_size=x.size(0), logger=True
+            on_epoch=True, batch_size=x.size(0), logger=True
         )
         self.log(
             'val_f1', f1, prog_bar=True,
-            on_step=True, on_batch=True,
-            batch_size=x.size(0), logger=True
+            on_epoch=True, batch_size=x.size(0), logger=True
         )
         
     def predict_step(self, *args, **kwargs):
@@ -89,6 +86,6 @@ class BioStructClassifier(pl.LightningModule):
         )
         return {
             'optimizer': optimizer,
-            'scheduler': lr_scheduler,
-            # 'monitor': 'val_loss',
+            'lr_scheduler': lr_scheduler,
+            'monitor': 'val_loss',
         }

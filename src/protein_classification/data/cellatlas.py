@@ -48,9 +48,12 @@ def _load_fname_label_pairs(
 
 
 def _get_filepaths_with_labels(
-    pairs_df: pd.DataFrame, labels: Sequence[int]
-) -> dict[int, list[PathLike]]:
+    pairs_df: pd.DataFrame, labels: Sequence[str], labels_dict: dict[str, int]
+) -> dict[str, list[PathLike]]:
     """Get the list of image file paths with a given label."""
+    labels_dict_inv: dict[int, str] = {v: k for k, v in labels_dict.items()}
+    labels_num = [labels_dict[label] for label in labels if label in labels_dict]
+    
     filepaths_by_label: dict[int, list[PathLike]] = defaultdict(list)
     for _, row in pairs_df.iterrows():
         fname = row['filename']
@@ -61,8 +64,8 @@ def _get_filepaths_with_labels(
             continue  # Skip samples with no labels
         elif len(label_ids) == 1:
             label_id = label_ids[0]
-            if label_id in labels:
-                filepaths_by_label[label_id].append(Path(fname))
+            if label_id in labels_num:
+                filepaths_by_label[labels_dict_inv[label_id]].append(Path(fname))
     
     return filepaths_by_label
 
@@ -77,22 +80,30 @@ def get_cellatlas_filepaths_and_labels(
     """Get the file paths and labels for the Cell Atlas dataset."""
     labels_dict = _load_labels_dict(data_dir, rel_labels_path)
     pairs_df = _load_fname_label_pairs(data_dir, rel_fnames_labels_pairs_path)
-    protein_labels_ids = [labels_dict[label] for label in protein_labels if label in labels_dict]
-    fpaths_by_label = _get_filepaths_with_labels(pairs_df, protein_labels_ids)
+    fpaths_by_label = _get_filepaths_with_labels(pairs_df, protein_labels, labels_dict)
     
-    labels = {
-        0: "Nucleus",
-        1: "Endoplasmic reticulum",
-        2: "Microtubules",
+    curr_labels_dict = {
+        "Nucleus" : 0,
+        "Endoplasmic reticulum": 1,
+        "Microtubules": 2,
     }
-    labels.update({labels_dict[label]: label for label in protein_labels})
-    outputs: list[tuple[str, int]] = []
+    curr_labels_dict.update({label: (i + 3) for i, label in enumerate(protein_labels)})
+    
+    out_fpaths: list[str] = []
+    out_labels: list[int] = []
     for label, fpaths in fpaths_by_label.items():
         for fpath in fpaths:
             fpath = Path(data_dir) / rel_data_path / fpath
-            outputs.append((f"{str(fpath)}_green.tif", label))
-            outputs.append((f"{str(fpath)}_blue.tif", 0))
-            outputs.append((f"{str(fpath)}_yellow.tif", 1))
-            outputs.append((f"{str(fpath)}_red.tif", 2))
-            
-    return outputs, labels
+            # append file paths
+            out_fpaths.append(f"{str(fpath)}_green.tif")
+            out_fpaths.append(f"{str(fpath)}_blue.tif")
+            out_fpaths.append(f"{str(fpath)}_yellow.tif")
+            out_fpaths.append(f"{str(fpath)}_red.tif")
+            # append labels
+            out_labels.append(curr_labels_dict[label])
+            out_labels.append(curr_labels_dict["Nucleus"])
+            out_labels.append(curr_labels_dict["Endoplasmic reticulum"])
+            out_labels.append(curr_labels_dict["Microtubules"])
+    
+    outputs = list(zip(out_fpaths, out_labels))
+    return outputs, curr_labels_dict

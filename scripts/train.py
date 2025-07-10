@@ -19,7 +19,7 @@ from protein_classification.model import BioStructClassifier
 from protein_classification.utils.callbacks import get_callbacks
 from protein_classification.utils.io import load_dataset_stats, get_log_dir, log_configs
 
-LOGGING = False  # Set to True to enable logging
+LOGGING = True # Set to True to enable logging
 torch.set_float32_matmul_precision('medium')
 
 
@@ -66,9 +66,13 @@ algo_config = AlgorithmConfig(
 )
 
 # --- Data Setup ---
-input_data, _ = get_cellatlas_filepaths_and_labels(
+input_data, curr_labels = get_cellatlas_filepaths_and_labels(
     data_dir=data_config.data_dir, protein_labels=data_config.labels,
 )
+print("--------------Dataset Info--------------")
+print(f"Number of samples: {len(input_data)}")
+print(f"Labels: {curr_labels}")
+print("----------------------------------------\n")
 train_dataset = PreTrainingDataset(
     inputs=input_data,
     split="train",
@@ -101,13 +105,13 @@ val_dloader = DataLoader(
 # --- Initialize Logger + Log configs ---
 if LOGGING:
     logger = WandbLogger(
-        name=os.path.join(socket.gethostname(), exp_name),
+        name=os.path.join(socket.gethostname(), "/".join(str(log_dir).split("/")[-3:])),
         save_dir=algo_config.log_dir,
         project=algo_config.wandb_project,
     )
     log_configs(
         configs=[algo_config, data_config],
-        names=["algorithm", "data", "training", "exp_params", "dataset"],
+        names=["algorithm", "data"],
         log_dir=algo_config.log_dir,
         logger=logger,
     )
@@ -123,7 +127,7 @@ callbacks = get_callbacks(
 trainer = Trainer(
     accelerator="gpu",
     max_epochs=training_config.max_epochs,
-    logger=logger,
+    logger=logger if LOGGING else False,
     callbacks=callbacks,
     enable_progress_bar=True,
     enable_model_summary=True,
