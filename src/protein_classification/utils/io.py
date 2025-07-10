@@ -85,10 +85,6 @@ def _get_new_version_dir(model_dir: Union[str, Path]) -> Path:
         versions = [int(d.name) for d in Path(model_dir).iterdir() if d.is_dir()]
         next_version = max(versions) + 1 if versions else 1
         next_version_dir = Path(model_dir) / str(next_version)
-        try:
-            next_version_dir.mkdir(exist_ok=False)
-        except FileExistsError:
-            print(f"Version {next_version} already exists in {model_dir}.")
     
     return next_version_dir
 

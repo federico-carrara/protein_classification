@@ -65,19 +65,19 @@ class ZarrPreprocessor:
         """Read an image file and preprocess it."""
         img: NDArray = self.imreader(fpath)
         
-        # resize to img_size if necessary
-        if img.shape != (self.img_size, self.img_size):
-            img = resize_img(img, self.img_size)
-            
         # normalize the image using the specified method
         if self.normalize is not None:
             img = normalize_img(
                 img, self.normalize, self.dataset_stats
             )
         
+        # resize to img_size if necessary
+        if img.shape != (self.img_size, self.img_size):
+            img = resize_img(img, self.img_size)
+        
         return img.astype(np.float32)[None, ...] # add channel dim
     
-    def write(self) -> Path:
+    def run(self) -> Path:
         num_samples = len(self.inputs)
         h, w = self.img_size, self.img_size
         shape = (num_samples, 1, h, w)

@@ -110,9 +110,6 @@ class InMemoryDataset(Dataset):
             # normalize the image range into [0, 1]
             if self.bit_depth is not None:
                 img = normalize_range(img, self.bit_depth)
-                self.dataset_stats = [
-                    stat / (2**self.bit_depth - 1) for stat in self.dataset_stats
-                ]
                 
             # normalize the image using the specified method
             if self.normalize is not None:
