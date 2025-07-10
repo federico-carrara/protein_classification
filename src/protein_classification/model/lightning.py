@@ -31,7 +31,7 @@ class BioStructClassifier(pl.LightningModule):
         loss = self.loss_fn(logits, y)
         self.log(
             'train_loss', loss, prog_bar=True,
-            on_step=True, on_batch=True,
+            on_step=True, on_epoch=True,
             batch_size=x.size(0), logger=True
         )
         

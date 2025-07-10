@@ -56,7 +56,7 @@ else:
 training_config = TrainingConfig(
     max_epochs=100,
     lr=3e-4,
-    batch_size=128,
+    batch_size=8,
     gradient_clip_val=1.0,
     gradient_clip_algorithm="norm",
 )
@@ -130,7 +130,7 @@ callbacks = get_callbacks(
 trainer = Trainer(
     accelerator="gpu",
     max_epochs=training_config.max_epochs,
-    logger=logger if LOGGING else False,
+    logger=logger,
     callbacks=callbacks,
     enable_progress_bar=True,
     enable_model_summary=True,
