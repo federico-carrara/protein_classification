@@ -23,8 +23,8 @@ class ZarrPreprocessor:
         Sequence of tuples of image filename and label index (optional for test set)
         for each sample.
     output_path: PathLike
-        Path to the temporary output Zarr file where the preprocessed images will be stored.
-        Defaults to "./preprocessed.zarr".
+        Path to the temporary output Zarr file "preprocessed_data.zarr" where the
+        preprocessed data will be stored. Defaults to "./".
     img_size : int, optional
         The size of the input images, by default 768. If the input images are not of this size,
         they will be resized to this size.
@@ -44,7 +44,7 @@ class ZarrPreprocessor:
     def __init__(
         self,
         inputs: Sequence[tuple[PathLike, int]],
-        output_path: PathLike = "./preprocessed.zarr",
+        output_path: PathLike = "./",
         img_size: int = 768,
         imreader: Callable = tiff.imread,
         normalize: Optional[Literal['minmax', 'std']] = None,
@@ -54,7 +54,7 @@ class ZarrPreprocessor:
         """Constructor."""
         super().__init__()
         self.inputs = inputs
-        self.output_path = output_path
+        self.output_path = Path(output_path) / "preprocessed_data.zarr"
         self.img_size = img_size
         self.normalize = normalize
         self.dataset_stats = dataset_stats
@@ -86,6 +86,7 @@ class ZarrPreprocessor:
         chunks = (self.chunk_size, 1, h, w)
 
         # Create a group
+        # TODO: add LRUCache for chunks
         zarr_group = zarr.open_group(self.output_path, mode="w")
 
         # Create image array
