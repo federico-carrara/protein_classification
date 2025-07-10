@@ -1,1 +1,1 @@
-from .dataset import PreTrainingDataset
+from .in_memory_dataset import PreTrainingDataset

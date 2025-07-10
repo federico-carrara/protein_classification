@@ -8,14 +8,10 @@ import zarr
 from numcodecs import Blosc
 from numpy.typing import NDArray
 from tqdm import tqdm
-from torch.utils.data.dataset import Dataset
 
-from protein_classification.data.utils import (
-    crop_img, normalize_img, normalize_range, resize_img
-)
+from protein_classification.data.utils import normalize_img, resize_img
 
 PathLike = Union[Path, str]
-
 
 
 class ZarrPreprocessor:
@@ -57,7 +53,7 @@ class ZarrPreprocessor:
     ) -> None:
         """Constructor."""
         super().__init__()
-        self.inputs= inputs
+        self.inputs = inputs
         self.output_path = output_path
         self.img_size = img_size
         self.normalize = normalize
@@ -89,19 +85,31 @@ class ZarrPreprocessor:
         compressor = Blosc(cname="zstd", clevel=3)
         chunks = (self.chunk_size, 1, h, w)
 
-        zarr_root = zarr.open(
-            self.output_path,
-            mode="w",
+        # Create a group
+        zarr_group = zarr.open_group(self.output_path, mode="w")
+
+        # Create image array
+        image_array = zarr_group.create_dataset(
+            name="images",
             shape=shape,
             dtype="float32",
             chunks=chunks,
             compressor=compressor,
         )
 
-        for i, (fpath, _) in enumerate(tqdm(self.inputs, desc="Preprocessing")):
+        # Create label array (int64 to match PyTorch conventions)
+        label_array = zarr_group.create_dataset(
+            name="labels",
+            shape=(num_samples,),
+            dtype="int64",
+            compressor=None,  # Labels are tiny — no need for compression
+        )
+
+        for i, (fpath, label) in enumerate(tqdm(self.inputs, desc="Preprocessing")):
             try:
                 img_tensor = self.preprocess_file(fpath)
-                zarr_root[i] = img_tensor
+                image_array[i] = img_tensor
+                label_array[i] = label
             except Exception as e:
                 print(f"[WARN] Failed to preprocess {fpath}: {e}")
                 raise
