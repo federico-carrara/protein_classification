@@ -19,7 +19,7 @@ from protein_classification.model import BioStructClassifier
 from protein_classification.utils.callbacks import get_callbacks
 from protein_classification.utils.io import load_dataset_stats, get_log_dir, log_configs
 
-LOGGING = True # Set to True to enable logging
+LOGGING = False # Set to True to enable logging
 torch.set_float32_matmul_precision('medium')
 
 
@@ -46,10 +46,13 @@ model_config = DenseNetConfig(
 )
 loss_config = LossConfig(loss_type="multiclass_focal_loss")
 exp_name = f"DenseNet121_{model_config.num_classes}Cl_{data_config.labels[0]}" # TODO: make it more general
-log_dir=get_log_dir(
-    base_dir="/group/jug/federico/classification_training",
-    exp_name=exp_name,
-)
+if LOGGING:
+    log_dir=get_log_dir(
+        base_dir="/group/jug/federico/classification_training",
+        exp_name=exp_name,
+    )
+else:
+    log_dir = None
 training_config = TrainingConfig(
     max_epochs=100,
     lr=3e-4,

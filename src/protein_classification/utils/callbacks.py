@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 from careamics.config import TrainingConfig
 from pytorch_lightning.callbacks import (
@@ -12,7 +12,7 @@ Callback = Union[EarlyStopping, LearningRateMonitor, ModelCheckpoint]
 
 
 def get_callbacks(
-    logdir: Union[str, Path], training_config: TrainingConfig
+    logdir: Optional[Union[str, Path]], training_config: TrainingConfig
 ) -> list[Callback]:
     return [
         EarlyStopping(

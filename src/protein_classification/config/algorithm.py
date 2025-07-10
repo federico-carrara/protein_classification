@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -32,7 +32,7 @@ class AlgorithmConfig(BaseModel):
     mode: Literal["train", "eval"]
     """Mode of operation, either 'train' for training or 'eval' for evaluation."""
     
-    log_dir: PathLike
+    log_dir: Optional[PathLike]
     """Directory where training logs and checkpoints will be saved."""
     
     wandb_project: str = "protein_classification"
