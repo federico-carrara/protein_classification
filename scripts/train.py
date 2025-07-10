@@ -1,4 +1,6 @@
+import argparse
 import os
+import shutil
 import socket
 
 import torch
@@ -10,16 +12,23 @@ from torch.utils.data import DataLoader
 from protein_classification.config import (
     AlgorithmConfig, DataConfig, DenseNetConfig, LossConfig, TrainingConfig
 )
-from protein_classification.data import PreTrainingDataset
+from protein_classification.data import InMemoryDataset, ZarrDataset
 from protein_classification.data.augmentations import (
     train_augmentation, geometric_augmentation, noise_augmentation
 )
 from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_labels
+from protein_classification.data.preprocessing import ZarrPreprocessor
 from protein_classification.model import BioStructClassifier
 from protein_classification.utils.callbacks import get_callbacks
 from protein_classification.utils.io import load_dataset_stats, get_log_dir, log_configs
 
-LOGGING = False # Set to True to enable logging
+parser = argparse.ArgumentParser(description="Train a protein classification model.")
+parser.add_argument("--log", action="store_true", help="Enable logging with Weights & Biases.")
+parser.add_argument("--in_memory", action="store_true", help="Load the dataset in memory, else use Zarr preprocessing.")
+args = parser.parse_args()
+
+LOGGING = args.log
+IN_MEMORY = args.in_memory
 torch.set_float32_matmul_precision('medium')
 
 
@@ -34,7 +43,7 @@ data_config = DataConfig(
     crop_size=512,
     random_crop=True,
     transform=train_augmentation,
-    bit_depth=8,
+    bit_depth=None,
     normalize="std",
     dataset_stats=(dataset_stats["mean"], dataset_stats["std"]),
 )
@@ -56,7 +65,7 @@ else:
 training_config = TrainingConfig(
     max_epochs=100,
     lr=3e-4,
-    batch_size=8,
+    batch_size=32,
     gradient_clip_val=1.0,
     gradient_clip_algorithm="norm",
 )
@@ -76,23 +85,49 @@ print("--------------Dataset Info--------------")
 print(f"Number of samples: {len(input_data)}")
 print(f"Labels: {curr_labels}")
 print("----------------------------------------\n")
-train_dataset = PreTrainingDataset(
-    inputs=input_data,
-    split="train",
-    return_label=True,
-    **data_config.model_dump(exclude={"data_dir", "labels"})
-)
-val_dataset = PreTrainingDataset(
-    inputs=input_data,
-    split="test",
-    return_label=True,
-    **data_config.model_dump(exclude={"data_dir", "labels"})
-)
+# tmp: train/test split
+n_train = int(0.8 * len(input_data))
+if IN_MEMORY:
+    train_dataset = InMemoryDataset(
+        inputs=input_data[:n_train],
+        split="train",
+        return_label=True,
+        **data_config.model_dump(exclude={"data_dir", "labels"})
+    )
+    val_dataset = InMemoryDataset(
+        inputs=input_data[n_train:],
+        split="test",
+        return_label=True,
+        **data_config.model_dump(exclude={"data_dir", "labels"})
+    )
+else:
+    preprocessor = ZarrPreprocessor(
+        inputs=input_data,
+        img_size=data_config.img_size,
+        normalize=data_config.normalize,
+        dataset_stats=data_config.dataset_stats,
+        chunk_size=16,
+    )
+    zarr_path = preprocessor.run()
+    train_dataset = ZarrDataset(
+        path_to_zarr=zarr_path,
+        split="train",
+        crop_size=data_config.crop_size,
+        random_crop=data_config.random_crop,
+        transform=data_config.transform,
+    )
+    val_dataset = ZarrDataset(
+        path_to_zarr=zarr_path,
+        split="test",
+        crop_size=data_config.crop_size,
+        random_crop=False,  # No random cropping for validation
+        transform=None,  # No transformation for validation
+    )
 train_dloader = DataLoader(
     train_dataset,
     batch_size=training_config.batch_size,
     shuffle=True,
-    num_workers=0,
+    num_workers=3,
     pin_memory=True,
     drop_last=True,
 )
@@ -100,7 +135,7 @@ val_dloader = DataLoader(
     val_dataset,
     batch_size=training_config.batch_size,
     shuffle=False,
-    num_workers=0,
+    num_workers=3,
     pin_memory=True,
     drop_last=False,
 )
@@ -137,7 +172,11 @@ trainer = Trainer(
     enable_checkpointing=True,
     precision=training_config.precision,
     gradient_clip_algorithm=training_config.gradient_clip_algorithm,
-    gradient_clip_val=training_config.gradient_clip_val, 
+    gradient_clip_val=training_config.gradient_clip_val,
+    log_every_n_steps=10,
 )
 trainer.fit(model, train_dloader, val_dloader)
 wandb.finish()
+if not IN_MEMORY:
+    shutil.rmtree(zarr_path, ignore_errors=True)  # Clean up Zarr file after training
+    
