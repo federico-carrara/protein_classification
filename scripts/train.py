@@ -18,6 +18,7 @@ from protein_classification.data.augmentations import (
 )
 from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_labels
 from protein_classification.data.preprocessing import ZarrPreprocessor
+from protein_classification.data.utils import train_test_split
 from protein_classification.model import BioStructClassifier
 from protein_classification.utils.callbacks import get_callbacks
 from protein_classification.utils.io import load_dataset_stats, get_log_dir, log_configs
@@ -81,43 +82,58 @@ algo_config = AlgorithmConfig(
 input_data, curr_labels = get_cellatlas_filepaths_and_labels(
     data_dir=data_config.data_dir, protein_labels=data_config.labels,
 )
+train_input_data, _ = train_test_split(
+    input_data, train_ratio=0.9, deterministic=True
+)
+train_input_data, val_input_data = train_test_split(
+    train_input_data, train_ratio=0.9, deterministic=False
+)
 print("--------------Dataset Info--------------")
-print(f"Number of samples: {len(input_data)}")
+print(f"Number training samples: {len(train_input_data)}")
+print(f"Number validation samples: {len(val_input_data)}")
 print(f"Labels: {curr_labels}")
 print("----------------------------------------\n")
-# tmp: train/test split
-n_train = int(0.8 * len(input_data))
 if IN_MEMORY:
     train_dataset = InMemoryDataset(
-        inputs=input_data[:n_train],
+        inputs=train_input_data,
         split="train",
         return_label=True,
         **data_config.model_dump(exclude={"data_dir", "labels"})
     )
     val_dataset = InMemoryDataset(
-        inputs=input_data[n_train:],
+        inputs=val_input_data,
         split="test",
         return_label=True,
         **data_config.model_dump(exclude={"data_dir", "labels"})
     )
 else:
-    preprocessor = ZarrPreprocessor(
+    train_preprocessor = ZarrPreprocessor(
         inputs=input_data,
+        output_path="./train_preprocessed_data.zarr",
         img_size=data_config.img_size,
         normalize=data_config.normalize,
         dataset_stats=data_config.dataset_stats,
         chunk_size=16,
     )
-    zarr_path = preprocessor.run()
+    val_preprocessor = ZarrPreprocessor(
+        inputs=val_input_data,
+        output_path="./val_preprocessed_data.zarr",
+        img_size=data_config.img_size,
+        normalize=data_config.normalize,
+        dataset_stats=data_config.dataset_stats,
+        chunk_size=16,
+    )
+    train_zarr_path = train_preprocessor.run()
+    val_zarr_path = val_preprocessor.run()
     train_dataset = ZarrDataset(
-        path_to_zarr=zarr_path,
+        path_to_zarr=train_zarr_path,
         split="train",
         crop_size=data_config.crop_size,
         random_crop=data_config.random_crop,
         transform=data_config.transform,
     )
     val_dataset = ZarrDataset(
-        path_to_zarr=zarr_path,
+        path_to_zarr=val_zarr_path,
         split="test",
         crop_size=data_config.crop_size,
         random_crop=False,  # No random cropping for validation
@@ -177,6 +193,8 @@ trainer = Trainer(
 )
 trainer.fit(model, train_dloader, val_dloader)
 wandb.finish()
+
+# Clean up Zarr file after training
 if not IN_MEMORY:
-    shutil.rmtree(zarr_path, ignore_errors=True)  # Clean up Zarr file after training
-    
+    shutil.rmtree(train_zarr_path, ignore_errors=True)
+    shutil.rmtree(val_zarr_path, ignore_errors=True)

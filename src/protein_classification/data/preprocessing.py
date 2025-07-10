@@ -23,8 +23,7 @@ class ZarrPreprocessor:
         Sequence of tuples of image filename and label index (optional for test set)
         for each sample.
     output_path: PathLike
-        Path to the temporary output Zarr file "preprocessed_data.zarr" where the
-        preprocessed data will be stored. Defaults to "./".
+        Path to the temporary output Zarr file where the preprocessed data will be stored.
     img_size : int, optional
         The size of the input images, by default 768. If the input images are not of this size,
         they will be resized to this size.
@@ -44,7 +43,7 @@ class ZarrPreprocessor:
     def __init__(
         self,
         inputs: Sequence[tuple[PathLike, int]],
-        output_path: PathLike = "./",
+        output_path: PathLike,
         img_size: int = 768,
         imreader: Callable = tiff.imread,
         normalize: Optional[Literal['minmax', 'std']] = None,
@@ -54,7 +53,7 @@ class ZarrPreprocessor:
         """Constructor."""
         super().__init__()
         self.inputs = inputs
-        self.output_path = Path(output_path) / "preprocessed_data.zarr"
+        self.output_path = Path(output_path)
         self.img_size = img_size
         self.normalize = normalize
         self.dataset_stats = dataset_stats
@@ -106,7 +105,7 @@ class ZarrPreprocessor:
             compressor=None,  # Labels are tiny — no need for compression
         )
 
-        for i, (fpath, label) in enumerate(tqdm(self.inputs, desc="Preprocessing")):
+        for i, (fpath, label) in enumerate(tqdm(self.inputs, desc="Preprocessing data")):
             try:
                 img_tensor = self.preprocess_file(fpath)
                 image_array[i] = img_tensor

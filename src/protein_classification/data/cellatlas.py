@@ -76,7 +76,7 @@ def get_cellatlas_filepaths_and_labels(
     rel_data_path: PathLike = "./train_data_raw/",
     rel_labels_path: PathLike = "./labels_list.json",
     rel_fnames_labels_pairs_path: PathLike = "./train_labels.csv"
-) -> tuple[list[tuple[Path, int]], dict[int, str]]:
+) -> tuple[list[tuple[Path, int]], dict[str, int]]:
     """Get the file paths and labels for the Cell Atlas dataset."""
     labels_dict = _load_labels_dict(data_dir, rel_labels_path)
     pairs_df = _load_fname_label_pairs(data_dir, rel_fnames_labels_pairs_path)
