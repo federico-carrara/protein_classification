@@ -100,11 +100,11 @@ class InMemoryDataset(Dataset):
             img: NDArray = self.imreader(fpath)
             
             # resize to img_size if necessary
-            if img.shape != (self.img_size, self.img_size):
+            if self.img_size is not None and img.shape != (self.img_size, self.img_size):
                 img = resize_img(img, self.img_size)
             
             # crop to crop_size if necessary
-            if self.img_size != self.crop_size:
+            if self.crop_size is not None and self.img_size != self.crop_size:
                 img = crop_img(img, self.crop_size, self.random_crop)
             
             images.append(
