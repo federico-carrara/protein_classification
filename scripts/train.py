@@ -26,10 +26,20 @@ from protein_classification.utils.io import load_dataset_stats, get_log_dir, log
 parser = argparse.ArgumentParser(description="Train a protein classification model.")
 parser.add_argument("--log", action="store_true", help="Enable logging with Weights & Biases.")
 parser.add_argument("--in_memory", action="store_true", help="Load the dataset in memory, else use Zarr preprocessing.")
+parser.add_argument("--aug", type=str, default="all", choices=["geom", "noise", "all", "None"])
+parser.add_argument("--acc_batches", type=int, default=4, help="Number of batches to accumulate gradients over.")
 args = parser.parse_args()
 
 LOGGING = args.log
 IN_MEMORY = args.in_memory
+if args.aug == "geom":
+    augmentation = geometric_augmentation
+elif args.aug == "noise":
+    augmentation = noise_augmentation
+elif args.aug == "all":
+    augmentation = train_augmentation
+else:
+    augmentation = None
 torch.set_float32_matmul_precision('medium')
 
 
@@ -43,7 +53,7 @@ data_config = DataConfig(
     img_size=768,
     crop_size=512,
     random_crop=True,
-    transform=train_augmentation,
+    transform=augmentation,
     bit_depth=None,
     normalize="std",
     dataset_stats=(dataset_stats["mean"], dataset_stats["std"]),
@@ -69,7 +79,7 @@ training_config = TrainingConfig(
     batch_size=32,
     gradient_clip_val=1.0,
     gradient_clip_algorithm="norm",
-    accumulate_grad_batches=4,
+    accumulate_grad_batches=args.acc_batches,
 )
 algo_config = AlgorithmConfig(
     mode="train",
@@ -83,6 +93,7 @@ algo_config = AlgorithmConfig(
 input_data, curr_labels = get_cellatlas_filepaths_and_labels(
     data_dir=data_config.data_dir, protein_labels=data_config.labels,
 )
+input_data = input_data[:100]
 train_input_data, _ = train_test_split(
     input_data, train_ratio=0.9, deterministic=True
 )
