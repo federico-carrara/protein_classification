@@ -29,10 +29,10 @@ def compute_classification_metrics(
         "f1": f1_score(gts, preds, average=average, zero_division=0),
         "precision": precision_score(gts, preds, average=average, zero_division=0),
         "recall": recall_score(gts, preds, average=average, zero_division=0),
-        "confusion_matrix": confusion_matrix(gts, preds),
-        "report": classification_report(
-            gts, preds, digits=3, zero_division=0, output_dict=True
-        ),
+        "confusion_matrix": confusion_matrix(gts, preds).tolist(),
+        # "report": classification_report(
+        #     gts, preds, digits=3, zero_division=0, output_dict=True
+        # ),
     }
 
     # Optional: AUC if probability scores are provided

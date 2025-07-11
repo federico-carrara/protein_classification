@@ -16,7 +16,10 @@ class BioStructClassifier(pl.LightningModule):
         self.loss_fn = loss_factory(config.loss_config)
         
         # metrics
-        self.f1_metric = MulticlassF1Score(
+        self.f1_metric_train = MulticlassF1Score(
+            num_classes=config.architecture_config.num_classes, average='macro'
+        )
+        self.f1_metric_val = MulticlassF1Score(
             num_classes=config.architecture_config.num_classes, average='macro'
         )
 
@@ -31,22 +34,19 @@ class BioStructClassifier(pl.LightningModule):
         loss = self.loss_fn(logits, y)
         self.log(
             'train_loss', loss, prog_bar=True,
-            on_step=True, on_epoch=True,
-            batch_size=x.size(0), logger=True
+            on_epoch=True, batch_size=x.size(0), logger=True
         )
         
         # calculate and log metrics
         acc = (logits.argmax(dim=1) == y).float().mean()
-        f1 = self.f1_metric(logits, y)
+        f1 = self.f1_metric_train(logits, y)
         self.log(
             'train_accuracy', acc, prog_bar=True,
-            on_step=True, on_epoch=True,
-            batch_size=x.size(0), logger=True
+            on_epoch=True, batch_size=x.size(0), logger=True
         )
         self.log(
             'train_f1', f1, prog_bar=True,
-            on_step=True, on_epoch=True,
-            batch_size=x.size(0), logger=True
+            on_epoch=True, batch_size=x.size(0), logger=True
         )
         return loss
 
@@ -63,7 +63,7 @@ class BioStructClassifier(pl.LightningModule):
         
         # calculate and log metrics
         acc = (logits.argmax(dim=1) == y).float().mean()
-        f1 = self.f1_metric(logits, y)
+        f1 = self.f1_metric_val(logits, y)
         self.log(
             'val_accuracy', acc, prog_bar=True,
             on_epoch=True, batch_size=x.size(0), logger=True

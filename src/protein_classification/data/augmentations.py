@@ -249,6 +249,5 @@ def add_gaussian_noise(
     """
     roof = 2 ** bit_depth - 1
     std = random.uniform(*std_range) * roof
-    print(std / roof, std)
     noise = torch.randn_like(image) * std
     return torch.clamp(image + noise, 0.0, roof)
