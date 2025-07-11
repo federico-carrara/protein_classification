@@ -1,7 +1,24 @@
+import random
+from typing import Callable, Optional, Union
+
 import torch
 from torch import Tensor
-from typing import Optional, Union
-import random
+
+
+def transforms_factory(
+    name: Optional[str] = None
+) -> Optional[Callable[[Tensor, Optional[Tensor]], Union[Tensor, tuple[Tensor, Tensor]]]]:
+    """Factory function to get the appropriate transformation function."""
+    if name is None:
+        return None
+    elif name == 'geometric':
+        return geometric_augmentation
+    elif name == 'noise':
+        return noise_augmentation
+    elif name == 'all':
+        return train_augmentation
+    else:
+        raise ValueError(f"Unknown transformation: {name}")
 
 
 def train_augmentation(

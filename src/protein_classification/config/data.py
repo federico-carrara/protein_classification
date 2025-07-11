@@ -40,12 +40,12 @@ class DataConfig(BaseModel):
     imreader: Callable[[PathLike], Union[NDArray, Tensor]] = Field(tiff.imread, exclude=True)
     """Function to read images from filepaths as `NDArray` arrays. By default `tiff.imread`."""
     
-    transform: Optional[Callable[[NDArray], NDArray]] = Field(None, exclude=True)
-    """A function/transform that takes in an image and returns a transformed version.
-    Currently, the available transforms are:
-    - `train_augmentation`: applies random noise and geometric augmentations.
-    - `geometric_augmentation`: applies only random geometric augmentations.
-    - `noise_augmentation`: applies only random noise augmentations.
+    transform: Optional[Literal['geometric', 'noise', 'all']] = None
+    """The name of the augmentation/transform used at training time.
+    Currently, the available ones are:
+    - "geometric": applies only random geometric augmentations.
+    - "noise": applies only random noise augmentations.
+    - "all": applies all augmentations.
     By default `None`, which means no transformation is applied."""
     
     bit_depth: Optional[int] = None

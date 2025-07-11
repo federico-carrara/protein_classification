@@ -13,9 +13,7 @@ from protein_classification.config import (
     AlgorithmConfig, DataConfig, DenseNetConfig, LossConfig, TrainingConfig
 )
 from protein_classification.data import InMemoryDataset, ZarrDataset
-from protein_classification.data.augmentations import (
-    train_augmentation, geometric_augmentation, noise_augmentation
-)
+from protein_classification.data.augmentations import transforms_factory
 from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_labels
 from protein_classification.data.preprocessing import ZarrPreprocessor
 from protein_classification.data.utils import train_test_split
@@ -26,20 +24,12 @@ from protein_classification.utils.io import load_dataset_stats, get_log_dir, log
 parser = argparse.ArgumentParser(description="Train a protein classification model.")
 parser.add_argument("--log", action="store_true", help="Enable logging with Weights & Biases.")
 parser.add_argument("--in_memory", action="store_true", help="Load the dataset in memory, else use Zarr preprocessing.")
-parser.add_argument("--aug", type=str, default="all", choices=["geom", "noise", "all", "None"])
+parser.add_argument("--aug", type=str, default=None, choices=["geometric", "noise", "all", "None"])
 parser.add_argument("--acc_batches", type=int, default=4, help="Number of batches to accumulate gradients over.")
 args = parser.parse_args()
 
 LOGGING = args.log
 IN_MEMORY = args.in_memory
-if args.aug == "geom":
-    augmentation = geometric_augmentation
-elif args.aug == "noise":
-    augmentation = noise_augmentation
-elif args.aug == "all":
-    augmentation = train_augmentation
-else:
-    augmentation = None
 torch.set_float32_matmul_precision('medium')
 
 
@@ -53,7 +43,7 @@ data_config = DataConfig(
     img_size=768,
     crop_size=512,
     random_crop=True,
-    transform=augmentation,
+    transform=args.aug,
     bit_depth=None,
     normalize="std",
     dataset_stats=(dataset_stats["mean"], dataset_stats["std"]),
@@ -109,13 +99,25 @@ if IN_MEMORY:
         inputs=train_input_data,
         split="train",
         return_label=True,
-        **data_config.model_dump(exclude={"data_dir", "labels"})
+        img_size=data_config.img_size,
+        crop_size=data_config.crop_size,
+        random_crop=data_config.random_crop,
+        transform=transforms_factory(data_config.transform),
+        bit_depth=data_config.bit_depth,
+        normalize=data_config.normalize,
+        dataset_stats=data_config.dataset_stats,
     )
     val_dataset = InMemoryDataset(
         inputs=val_input_data,
         split="test",
         return_label=True,
-        **data_config.model_dump(exclude={"data_dir", "labels"})
+        img_size=data_config.img_size,
+        crop_size=data_config.crop_size,
+        random_crop=False,
+        transform=None,
+        bit_depth=data_config.bit_depth,
+        normalize=data_config.normalize,
+        dataset_stats=data_config.dataset_stats,
     )
 else:
     train_preprocessor = ZarrPreprocessor(
@@ -141,7 +143,7 @@ else:
         split="train",
         crop_size=data_config.crop_size,
         random_crop=data_config.random_crop,
-        transform=data_config.transform,
+        transform=transforms_factory(data_config.transform),
     )
     val_dataset = ZarrDataset(
         path_to_zarr=val_zarr_path,
