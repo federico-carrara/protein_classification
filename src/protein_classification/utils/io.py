@@ -1,3 +1,4 @@
+import glob
 import json
 import os
 from datetime import datetime
@@ -5,6 +6,7 @@ from filelock import FileLock
 from pathlib import Path
 from typing import Literal, Optional, Sequence, Union
 
+import torch
 from pydantic import BaseModel
 from pytorch_lightning.loggers import WandbLogger
 
@@ -178,3 +180,61 @@ def load_dataset_stats(
         "min": stats.get("min", None),
         "max": stats.get("max", None),
     }
+
+
+
+def get_checkpoint_path(
+    ckpt_dir: str, mode: Literal['best', 'last'] = 'best'
+) -> str:
+    """Get the model checkpoint path.
+    
+    Parameters
+    ----------
+    ckpt_dir : str
+        Checkpoint directory.
+    mode : Literal['best', 'last'], optional
+        Mode to get the checkpoint, by default 'best'.
+    
+    Returns
+    -------
+    str
+        Checkpoint path.
+    """
+    output = []
+    for fpath in glob.glob(ckpt_dir + "/*.ckpt"):
+        fname = os.path.basename(fpath)
+        if mode == 'best':
+            if fname.startswith('best'):
+                output.append(fpath)
+        elif mode == 'last':
+            if fname.startswith('last'):
+                output.append(fpath)
+    assert len(output) == 1, '\n'.join(output)
+    return output[0]
+
+
+def load_checkpoint(ckpt_dir: Union[str, Path], best: bool = True) -> dict:
+    """Load the checkpoint from the given directory.
+    
+    Parameters
+    ----------
+    ckpt_dir : Union[str, Path]
+        The path to the checkpoint directory.
+    best : bool, optional
+        Whether to load the best checkpoint, by default True.
+        If False, the last checkpoint will be loaded.
+    
+    Returns
+    -------
+    dict
+        The loaded checkpoint.
+    """
+    if os.path.isdir(ckpt_dir):
+        ckpt_fpath = get_checkpoint_path(ckpt_dir, mode="best" if best else "last")
+    else:
+        assert os.path.isfile(ckpt_dir)
+        ckpt_fpath = ckpt_dir
+
+    ckpt = torch.load(ckpt_fpath)
+    print(f"\nLoading checkpoint from: '{ckpt_fpath}' - Epoch: {ckpt['epoch']}\n")
+    return ckpt

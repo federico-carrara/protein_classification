@@ -40,7 +40,7 @@ class DataConfig(BaseModel):
     imreader: Callable[[PathLike], Union[NDArray, Tensor]] = Field(tiff.imread, exclude=True)
     """Function to read images from filepaths as `NDArray` arrays. By default `tiff.imread`."""
     
-    transform: Optional[Callable[[NDArray], NDArray]] = Field(... , exclude=True)
+    transform: Optional[Callable[[NDArray], NDArray]] = Field(None, exclude=True)
     """A function/transform that takes in an image and returns a transformed version.
     Currently, the available transforms are:
     - `train_augmentation`: applies random noise and geometric augmentations.

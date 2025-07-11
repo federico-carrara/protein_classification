@@ -72,9 +72,15 @@ class BioStructClassifier(pl.LightningModule):
             'val_f1', f1, prog_bar=True,
             on_epoch=True, batch_size=x.size(0), logger=True
         )
-        
-    def predict_step(self, *args, **kwargs):
-        pass
+    
+    def predict_step(
+        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        x, y = batch
+        logits = self(x)
+        probs = torch.softmax(logits, dim=1)
+        preds = logits.argmax(dim=1)
+        return preds, probs, y
 
     def configure_optimizers(self) -> dict:
         optimizer = torch.optim.Adam(self.parameters(), lr=self.config.training_config.lr)
