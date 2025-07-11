@@ -69,6 +69,7 @@ training_config = TrainingConfig(
     batch_size=32,
     gradient_clip_val=1.0,
     gradient_clip_algorithm="norm",
+    accumulate_grad_batches=4,
 )
 algo_config = AlgorithmConfig(
     mode="train",
@@ -108,7 +109,7 @@ if IN_MEMORY:
     )
 else:
     train_preprocessor = ZarrPreprocessor(
-        inputs=input_data,
+        inputs=train_input_data,
         output_path="./train_preprocessed_data.zarr",
         img_size=data_config.img_size,
         normalize=data_config.normalize,
@@ -189,6 +190,7 @@ trainer = Trainer(
     precision=training_config.precision,
     gradient_clip_algorithm=training_config.gradient_clip_algorithm,
     gradient_clip_val=training_config.gradient_clip_val,
+    accumulate_grad_batches=training_config.accumulate_grad_batches,
     log_every_n_steps=10,
 )
 trainer.fit(model, train_dloader, val_dloader)
