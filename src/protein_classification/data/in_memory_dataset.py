@@ -8,7 +8,7 @@ from tqdm import tqdm
 from torch.utils.data.dataset import Dataset
 
 from protein_classification.data.utils import (
-    crop_img, normalize_img, normalize_range, resize_img
+    crop_img, normalize_img, resize_img
 )
 
 PathLike = Union[Path, str]
@@ -107,16 +107,6 @@ class InMemoryDataset(Dataset):
             if self.img_size != self.crop_size:
                 img = crop_img(img, self.crop_size, self.random_crop)
             
-            # normalize the image range into [0, 1]
-            if self.bit_depth is not None:
-                img = normalize_range(img, self.bit_depth)
-                
-            # normalize the image using the specified method
-            if self.normalize is not None:
-                img = normalize_img(
-                    img, self.normalize, self.dataset_stats
-                )
-            
             images.append(
                 torch.tensor(img, dtype=torch.float32)[None, ...] # add channel dim
             )
@@ -128,8 +118,13 @@ class InMemoryDataset(Dataset):
         image = self.images[idx]
         label = self.labels[idx]
          
+        # apply data augmentation
         if self.transform is not None:
-            image = self.transform(image)
+            image = self.transform(image, bit_depth=self.bit_depth)
+            
+        # normalize image
+        if self.normalize is not None:
+            image = normalize_img(image, self.normalize, self.dataset_stats)
    
         if self.return_label:
             return image, label
