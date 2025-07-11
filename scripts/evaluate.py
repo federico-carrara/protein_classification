@@ -1,4 +1,5 @@
 import argparse
+import json
 
 import pandas as pd
 import torch
@@ -108,6 +109,9 @@ metrics = compute_classification_metrics(
     num_classes=len(curr_labels),
     average="macro",
 )
+with open(f"{args.ckpt_dir}/metrics.json", "w") as f:
+    json.dump(metrics, f, indent=4)
+
 print("Accuracy:", metrics["accuracy"])
 print("F1 (macro):", metrics["f1"])
 print("Precision:", metrics["precision"])
