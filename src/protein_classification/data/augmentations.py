@@ -163,9 +163,8 @@ def noise_augmentation(
     image: Tensor, mask: Optional[Tensor] = None, bit_depth: int = 8
 ) -> Union[Tensor, tuple[Tensor, Tensor]]:
     """Add random noise to the image."""
-    # TODO: consider swapping order of background and poisson
-    image = add_background(image, bit_depth)
     image = add_poisson_noise(image, bit_depth)
+    image = add_background(image, bit_depth)
     image = add_gaussian_noise(image, bit_depth)
     if mask is not None:
         return image, mask
@@ -174,7 +173,7 @@ def noise_augmentation(
 def add_background(
     image: Tensor,
     bit_depth: int = 8,
-    intensity_range: tuple[float, float] = (1e-3, 1e-2),
+    intensity_range: tuple[float, float] = (1e-3, 1e-1),
 ) -> Tensor:
     """Simulate uneven background by adding constant or low-frequency bias.
 
@@ -200,9 +199,11 @@ def add_background(
 def add_poisson_noise(
     image: Tensor,
     bit_depth: int = 8,
-    scale_range: tuple[float, float] = (30.0, 100.0)
+    scale_range: tuple[float, float] = (0.0, 100.0)
 ) -> Tensor:
     """Add Poisson noise to simulate photon noise in microscopy.
+    
+    NOTE: the closer the scale is to 0, the more noise is added.
 
     Parameters
     ----------
@@ -219,6 +220,7 @@ def add_poisson_noise(
         Image with Poisson noise applied.
     """
     roof = 2 ** bit_depth - 1
+    # TODO: sample from a distribution that gives more prob to lower values?
     scale = random.uniform(*scale_range)
     image_scaled = image * scale
     noisy = torch.poisson(image_scaled)
@@ -227,7 +229,7 @@ def add_poisson_noise(
 def add_gaussian_noise(
     image: Tensor,
     bit_depth: int = 8,
-    std_range: tuple[float, float] = (1e-5, 2e-4)
+    std_range: tuple[float, float] = (1e-3, 1e-1)
 ) -> Tensor:
     """Add Gaussian noise to simulate read noise.
 
@@ -246,6 +248,7 @@ def add_gaussian_noise(
         Image with Gaussian noise applied.
     """
     roof = 2 ** bit_depth - 1
-    std = random.uniform(*std_range) * roof 
+    std = random.uniform(*std_range) * roof
+    print(std / roof, std)
     noise = torch.randn_like(image) * std
     return torch.clamp(image + noise, 0.0, roof)
