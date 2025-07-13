@@ -37,6 +37,11 @@ class DataConfig(BaseModel):
     """Whether to apply random cropping to the images. If `False`, center cropping is
     applied."""
     
+    test_time_crop: bool = False
+    """Whether to apply test time cropping to the images. If `True`, overlapping crops
+    are extracted from the images during inference and final label is obtained by
+    majority voting."""
+    
     imreader: Callable[[PathLike], Union[NDArray, Tensor]] = Field(tiff.imread, exclude=True)
     """Function to read images from filepaths as `NDArray` arrays. By default `tiff.imread`."""
     

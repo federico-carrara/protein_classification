@@ -8,7 +8,7 @@ from tqdm import tqdm
 from torch.utils.data.dataset import Dataset
 
 from protein_classification.data.utils import (
-    crop_img, normalize_img, resize_img
+    crop_img, normalize_img, resize_img, test_time_crop_img
 )
 
 PathLike = Union[Path, str]
@@ -63,6 +63,7 @@ class InMemoryDataset(Dataset):
         img_size: int = 768,
         crop_size: Optional[int] = None,
         random_crop: bool = False,
+        test_time_crop: bool = False,
         imreader: Callable = tiff.imread,
         transform: Optional[Callable] = None,
         bit_depth: Optional[int] = None,
@@ -83,6 +84,11 @@ class InMemoryDataset(Dataset):
         self.imreader = imreader
         self.return_label = return_label
         self.random_crop = random_crop
+        self.test_time_crop = test_time_crop
+        
+        # Force test_time_crop to be False for train split
+        if self.split == 'train':
+            self.test_time_crop = False
         
         # Force transform to be None for test split
         if self.split == 'test':
@@ -116,7 +122,10 @@ class InMemoryDataset(Dataset):
         
         # crop to crop_size if necessary
         if self.crop_size is not None and self.img_size != self.crop_size:
-            image = crop_img(image, self.crop_size, self.random_crop)
+            if self.split == 'train':
+                image = crop_img(image, self.crop_size, self.random_crop)
+            elif self.split == 'test' and self.test_time_crop:
+                image = test_time_crop_img(image, self.crop_size)
          
         # apply data augmentation
         if self.transform is not None:

@@ -1,6 +1,7 @@
 from typing import Literal, Union
 
 import numpy as np
+import torch
 from numpy.typing import NDArray
 from skimage.transform import resize
 from torch import Tensor
@@ -79,6 +80,47 @@ def crop_img(img: NDArray | Tensor, crop_size: int, random_crop: bool) -> NDArra
     return img[:, y:y + crop_size, x:x + crop_size]
 
 
+def test_time_crop_img(image: Tensor, crop_size: int, overlap: int = None) -> Tensor:
+    """Test time cropping, consiting in the extraction of overlapping crops from the
+    input image tensor.
+
+    Parameters
+    ----------
+    image : torch.Tensor
+        Input tensor of shape (C, Y, X).
+    crop_size : int
+        Height and width of square crops.
+    overlap : int, optional
+        Overlap between crops (default: crop_size // 4).
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of shape (N, C, crop_size, crop_size), where N is the number of crops
+    """
+    if overlap is None:
+        overlap = crop_size // 4
+
+    C, H, W = image.shape
+    stride = crop_size - overlap
+
+    crops = []
+
+    # Calculate number of steps in each dimension
+    h_steps = max(1, (H - overlap) // stride)
+    w_steps = max(1, (W - overlap) // stride)
+
+    for i in range(h_steps + 1):
+        for j in range(w_steps + 1):
+            top = min(i * stride, H - crop_size)
+            left = min(j * stride, W - crop_size)
+
+            crop = image[:, top:top + crop_size, left:left + crop_size]
+            crops.append(crop)
+
+    return torch.stack(crops)  # Shape: (N, C, crop_size, crop_size)
+
+
 def resize_img(img: NDArray, size: int) -> NDArray:
     """Resize an image to a square of size `size`."""
     return resize(
@@ -103,3 +145,28 @@ def train_test_split(
     train_data = inputs[:n_train]
     test_data = inputs[n_train:]
     return train_data, test_data
+
+
+def collate_test_time_crops(
+    batch: list[tuple[list[Tensor], int]]
+) -> tuple[Tensor, Tensor]:
+    """Collate function for overlapping crops used at test time.
+
+    Parameters
+    ----------
+    batch : tuple[list[Tensor], int]
+        A batch, where each item is a tuple including the list of overlapping crops as
+        a tensors of shape (N_i, C, crop_size, crop_size) and an integer label.
+
+    Returns
+    -------
+    tuple[Tensor, Tensor]
+        Concatenated tensor of crops of shape (B * N_i, C, crop_size, crop_size) and
+        a tensor of labels of shape (B * N_i,).
+    """
+    crops, labels = zip(*batch)
+    labels = torch.tensor(labels).repeat_interleave(
+        torch.tensor([len(crop) for crop in crops])
+    )
+    crops = torch.cat(crops, dim=0)
+    return crops, labels

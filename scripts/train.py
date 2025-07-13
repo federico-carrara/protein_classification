@@ -45,6 +45,7 @@ data_config = DataConfig(
     img_size=args.img_size,
     crop_size=args.crop_size,
     random_crop=True,
+    test_time_crop=False,
     transform=args.aug,
     bit_depth=8,
     normalize="std",
