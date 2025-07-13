@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Callable, Literal, Optional, Sequence, Union
 
+import numpy as np
 import tifffile as tiff
 import torch
 from numpy.typing import NDArray
@@ -14,15 +15,13 @@ from protein_classification.data.utils import (
 PathLike = Union[Path, str]
 
 
-# TODO: deal with stratified/balanced sampling of the dataset
-class InMemoryDataset(Dataset):
+class LambdaSplitPredsDataset(Dataset):
     """Dataset for protein classification model where inputs are loaded from memory.
         
     Parameters
     ----------
-    inputs : Sequence[tuple[PathLike, int]]
-        Sequence of tuples of image filename and label index (optional for test set)
-        for each sample.
+    data_path: PathLike
+        Path to the directory containing the `.npz` file of λSplit predictions.
     split : Literal['train', 'test']
         The split of the dataset, either 'train' or 'test'.
     img_size : int, optional
@@ -58,13 +57,12 @@ class InMemoryDataset(Dataset):
     """
     def __init__(
         self,
-        inputs: Sequence[tuple[PathLike, int]],
+        data_path: PathLike,
         split: Literal['train', 'test'],
         img_size: int = 768,
         crop_size: Optional[int] = None,
         random_crop: bool = False,
         test_time_crop: bool = False,
-        imreader: Callable = tiff.imread,
         transform: Optional[Callable] = None,
         bit_depth: Optional[int] = None,
         normalize: Optional[Literal['minmax', 'std']] = None,
@@ -73,7 +71,7 @@ class InMemoryDataset(Dataset):
     ) -> None:
         """Constructor."""
         super().__init__()
-        self.inputs= inputs
+        self.data_path = data_path
         self.split = split
         self.img_size = img_size
         self.crop_size = crop_size
@@ -81,7 +79,6 @@ class InMemoryDataset(Dataset):
         self.bit_depth = bit_depth
         self.normalize = normalize
         self.dataset_stats = dataset_stats
-        self.imreader = imreader
         self.return_label = return_label
         self.random_crop = random_crop
         self.test_time_crop = test_time_crop
@@ -100,21 +97,18 @@ class InMemoryDataset(Dataset):
     
     def read_data(self) -> tuple[list[torch.Tensor], list[int]]:
         """Read data and preprocess them."""
-        images: list[torch.Tensor] = []
-        labels: list[int] = []
-        for fpath, label in tqdm(self.inputs, desc="Reading inputs"):
-            img: NDArray = self.imreader(fpath)
-            
-            # resize to img_size if necessary
-            if self.img_size is not None and img.shape != (self.img_size, self.img_size):
-                img = resize_img(img, self.img_size)
-            
-            images.append(
-                torch.tensor(img, dtype=torch.float32)[None, ...] # add channel dim
-            )
-            labels.append(int(label))
-            
-        return images, labels
+        # Load predictions from the .npz file
+        preds_data = np.load(self.data_path)
+        preds_data = [img for img in preds_data.values()]
+        
+        # Get single-channel images and labels
+        preds_data = [
+            (torch.tensor(img[i], dtype=torch.float32).unsqueeze(0), i) 
+            for img in preds_data
+            for i in range(img.shape[0])
+        ]
+        images, labels = zip(*preds_data)
+        return list(images), list(labels)
     
     def __getitem__(self, idx: int) -> Union[torch.Tensor, tuple[torch.Tensor, int]]:
         image = self.images[idx]
@@ -141,4 +135,4 @@ class InMemoryDataset(Dataset):
             return image
 
     def __len__(self):
-        return len(self.inputs)
+        return len(self.labels)
