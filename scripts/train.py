@@ -16,7 +16,7 @@ from protein_classification.data import InMemoryDataset, ZarrDataset
 from protein_classification.data.augmentations import transforms_factory
 from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_labels
 from protein_classification.data.preprocessing import ZarrPreprocessor
-from protein_classification.data.utils import train_test_split
+from protein_classification.data.utils import train_test_split, collate_test_time_crops
 from protein_classification.model import BioStructClassifier
 from protein_classification.utils.callbacks import get_callbacks
 from protein_classification.utils.io import load_dataset_stats, get_log_dir, log_configs
@@ -45,7 +45,7 @@ data_config = DataConfig(
     img_size=args.img_size,
     crop_size=args.crop_size,
     random_crop=True,
-    test_time_crop=False,
+    test_time_crop=True,
     transform=args.aug,
     bit_depth=8,
     normalize="std",
@@ -105,6 +105,7 @@ if IN_MEMORY:
         img_size=data_config.img_size,
         crop_size=data_config.crop_size,
         random_crop=data_config.random_crop,
+        test_time_crop=False,
         transform=transforms_factory(data_config.transform),
         bit_depth=data_config.bit_depth,
         normalize=data_config.normalize,
@@ -117,6 +118,7 @@ if IN_MEMORY:
         img_size=data_config.img_size,
         crop_size=data_config.crop_size,
         random_crop=False,
+        test_time_crop=data_config.test_time_crop,
         transform=None,
         bit_depth=data_config.bit_depth,
         normalize=data_config.normalize,
@@ -170,6 +172,7 @@ val_dloader = DataLoader(
     num_workers=3,
     pin_memory=True,
     drop_last=False,
+    collate_fn=collate_test_time_crops if data_config.test_time_crop else None,
 )
 
 # --- Initialize Logger + Log configs ---

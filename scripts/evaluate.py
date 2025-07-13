@@ -44,7 +44,6 @@ if args.tta:
 input_data, curr_labels = get_cellatlas_filepaths_and_labels(
     data_dir=data_config.data_dir, protein_labels=data_config.labels,
 )
-input_data = input_data[:100]
 _, test_input_data = train_test_split(
     input_data, train_ratio=0.9, deterministic=True
 )
