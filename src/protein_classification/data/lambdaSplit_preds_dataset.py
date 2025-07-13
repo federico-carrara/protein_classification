@@ -82,7 +82,6 @@ class LambdaSplitPredsDataset(Dataset):
         self.transform = transform
         self.bit_depth = bit_depth
         self.normalize = normalize
-        self.dataset_stats = dataset_stats
         self.return_label = return_label
         self.random_crop = random_crop
         self.test_time_crop = test_time_crop
@@ -98,6 +97,12 @@ class LambdaSplitPredsDataset(Dataset):
         
         # Read, preprocess and store the images and labels in memory
         self.images, self.labels = self.read_data()
+        
+        # Get dataset statistics for normalization
+        if dataset_stats is None:
+            self.dataset_stats = self._compute_img_stats()
+        else:
+            self.dataset_stats = dataset_stats
     
     def read_data(self) -> tuple[list[torch.Tensor], list[int]]:
         """Read data and preprocess them."""
@@ -116,6 +121,25 @@ class LambdaSplitPredsDataset(Dataset):
         ]
         images, labels = zip(*preds_data)
         return list(images), list(labels)
+    
+    def _compute_img_stats(self) -> tuple[float, float]:
+        """Compute image statistics for normalization."""
+        assert hasattr(self, "images"), "Images not loaded. Call `read_data()` first."
+        
+        if self.normalize is None:
+            return None, None
+        elif self.normalize == "minmax":
+            all_images = torch.cat(self.images, dim=0)
+            min_val = all_images.min().item()
+            max_val = all_images.max().item()
+            return min_val, max_val
+        elif self.normalize == "std":
+            all_images = torch.cat(self.images, dim=0)
+            mean_val = all_images.mean().item()
+            std_val = all_images.std().item()
+            return mean_val, std_val
+        else:
+            raise ValueError(f"Unknown normalization method: {self.normalize}")
     
     def __getitem__(self, idx: int) -> Union[torch.Tensor, tuple[torch.Tensor, int]]:
         image = self.images[idx]
