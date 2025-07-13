@@ -44,7 +44,7 @@ data_config = DataConfig(
     crop_size=512,
     random_crop=True,
     transform=args.aug,
-    bit_depth=None,
+    bit_depth=8,
     normalize="std",
     dataset_stats=(dataset_stats["mean"], dataset_stats["std"]),
 )
