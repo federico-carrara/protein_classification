@@ -24,8 +24,10 @@ from protein_classification.utils.io import load_dataset_stats, get_log_dir, log
 parser = argparse.ArgumentParser(description="Train a protein classification model.")
 parser.add_argument("--log", action="store_true", help="Enable logging with Weights & Biases.")
 parser.add_argument("--in_memory", action="store_true", help="Load the dataset in memory, else use Zarr preprocessing.")
-parser.add_argument("--aug", type=str, default=None, choices=["geometric", "noise", "all", "None"])
+parser.add_argument("--aug", type=str, default=None, choices=["geometric", "noise", "all"])
 parser.add_argument("--acc_batches", type=int, default=4, help="Number of batches to accumulate gradients over.")
+parser.add_argument("--img_size", type=int, default=768, help="Size of the input images.")
+parser.add_argument("--crop_size", type=int, default=512, help="Crop size for the input images.")
 args = parser.parse_args()
 
 LOGGING = args.log
@@ -40,8 +42,8 @@ dataset_stats = load_dataset_stats(
 data_config = DataConfig(
     data_dir="/group/jug/federico/data/CellAtlas",
     labels=["Mitochondria"],
-    img_size=768,
-    crop_size=512,
+    img_size=args.img_size,
+    crop_size=args.crop_size,
     random_crop=True,
     transform=args.aug,
     bit_depth=8,
