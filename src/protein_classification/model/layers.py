@@ -1,11 +1,7 @@
-import re
-from collections import OrderedDict
-from typing import Optional, Sequence
+from typing import Sequence
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.utils.model_zoo as model_zoo
 
 
 class DenseLayer(nn.Module):
