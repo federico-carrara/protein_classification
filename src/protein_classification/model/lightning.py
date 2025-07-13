@@ -53,6 +53,7 @@ class BioStructClassifier(pl.LightningModule):
     def validation_step(
         self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> None:
+        # TODO: add tta-like augmentation for validation
         x, y = batch
         logits: torch.Tensor = self.model(x)
         loss = self.loss_fn(logits, y)
