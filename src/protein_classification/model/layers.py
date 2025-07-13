@@ -59,7 +59,9 @@ class DenseBlock(nn.Module):
         self.layers = nn.Sequential(*self.layers)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.layers(x)
+        for layer in self.layers:
+            x = layer(x)
+        return x
 
 
 class Transition(nn.Module):
