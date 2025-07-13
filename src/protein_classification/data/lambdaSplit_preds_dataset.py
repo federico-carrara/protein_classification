@@ -22,6 +22,8 @@ class LambdaSplitPredsDataset(Dataset):
     ----------
     data_path: PathLike
         Path to the directory containing the `.npz` file of λSplit predictions.
+    ch_to_labels: dict[int, int]
+        Dictionary mapping channel indices to label indices.
     split : Literal['train', 'test']
         The split of the dataset, either 'train' or 'test'.
     img_size : int, optional
@@ -58,6 +60,7 @@ class LambdaSplitPredsDataset(Dataset):
     def __init__(
         self,
         data_path: PathLike,
+        ch_to_labels: dict[int, int],
         split: Literal['train', 'test'],
         img_size: int = 768,
         crop_size: Optional[int] = None,
@@ -72,6 +75,7 @@ class LambdaSplitPredsDataset(Dataset):
         """Constructor."""
         super().__init__()
         self.data_path = data_path
+        self.ch_to_labels = ch_to_labels
         self.split = split
         self.img_size = img_size
         self.crop_size = crop_size
@@ -103,7 +107,10 @@ class LambdaSplitPredsDataset(Dataset):
         
         # Get single-channel images and labels
         preds_data = [
-            (torch.tensor(img[i], dtype=torch.float32).unsqueeze(0), i) 
+            (
+                torch.tensor(img[i], dtype=torch.float32).unsqueeze(0),
+                self.ch_to_labels[i]
+            ) 
             for img in preds_data
             for i in range(img.shape[0])
         ]
