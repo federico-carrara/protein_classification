@@ -1,8 +1,9 @@
-from typing import Literal
+from typing import Literal, Union
 
 import numpy as np
 from numpy.typing import NDArray
 from skimage.transform import resize
+from torch import Tensor
 
 
 def normalize_range(
@@ -48,18 +49,34 @@ def _std_normalize(
     return (img - mean) / std
 
 
-def crop_img(img: NDArray, crop_size: int, random_crop: bool) -> NDArray:
-    """Crop a squared image to a square of size `crop_size`."""
-    assert img.shape[0] == img.shape[1], "Image must be square."
+def crop_img(img: NDArray | Tensor, crop_size: int, random_crop: bool) -> NDArray | Tensor:
+    """Crop a squared image to a square of size `crop_size`.
     
-    img_size = img.shape[0]
+    Parameters
+    ----------
+    img : NDArray | Tensor
+        The input image to crop, shaped as (C, Y, X).
+    crop_size : int
+        The size of the square crop to extract from the image.
+    random_crop : bool
+        If `True`, a random crop is taken from the image.
+        If `False`, the center crop is taken.
+        
+    Returns
+    -------
+    NDArray | Tensor
+        The cropped image, shaped as (C, crop_size, crop_size).
+    """
+    assert img.shape[-1] == img.shape[-2], "Image must be square."
+    
+    img_size = img.shape[-1]
     if random_crop:
         x = np.random.randint(0, img_size - crop_size + 1)
         y = np.random.randint(0, img_size - crop_size + 1)
     else:
         x = (img_size - crop_size) // 2
         y = (img_size - crop_size) // 2
-    return img[y:y + crop_size, x:x + crop_size]
+    return img[:, y:y + crop_size, x:x + crop_size]
 
 
 def resize_img(img: NDArray, size: int) -> NDArray:
