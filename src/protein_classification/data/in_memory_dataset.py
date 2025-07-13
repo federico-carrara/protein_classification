@@ -103,10 +103,6 @@ class InMemoryDataset(Dataset):
             if self.img_size is not None and img.shape != (self.img_size, self.img_size):
                 img = resize_img(img, self.img_size)
             
-            # crop to crop_size if necessary
-            if self.crop_size is not None and self.img_size != self.crop_size:
-                img = crop_img(img, self.crop_size, self.random_crop)
-            
             images.append(
                 torch.tensor(img, dtype=torch.float32)[None, ...] # add channel dim
             )
@@ -117,6 +113,10 @@ class InMemoryDataset(Dataset):
     def __getitem__(self, idx: int) -> Union[torch.Tensor, tuple[torch.Tensor, int]]:
         image = self.images[idx]
         label = self.labels[idx]
+        
+        # crop to crop_size if necessary
+        if self.crop_size is not None and self.img_size != self.crop_size:
+            image = crop_img(image, self.crop_size, self.random_crop)
          
         # apply data augmentation
         if self.transform is not None:
