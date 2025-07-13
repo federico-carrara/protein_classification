@@ -25,6 +25,7 @@ parser = argparse.ArgumentParser(description="Train a protein classification mod
 parser.add_argument("--log", action="store_true", help="Enable logging with Weights & Biases.")
 parser.add_argument("--in_memory", action="store_true", help="Load the dataset in memory, else use Zarr preprocessing.")
 parser.add_argument("--aug", type=str, default=None, choices=["geometric", "noise", "all"])
+parser.add_argument("--batch_size", type=int, default=32, help="Batch size for training.")
 parser.add_argument("--acc_batches", type=int, default=4, help="Number of batches to accumulate gradients over.")
 parser.add_argument("--img_size", type=int, default=768, help="Size of the input images.")
 parser.add_argument("--crop_size", type=int, default=512, help="Crop size for the input images.")
@@ -69,7 +70,7 @@ else:
 training_config = TrainingConfig(
     max_epochs=100,
     lr=3e-4,
-    batch_size=32,
+    batch_size=args.batch_size,
     gradient_clip_val=1.0,
     gradient_clip_algorithm="norm",
     accumulate_grad_batches=args.acc_batches,
