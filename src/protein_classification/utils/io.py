@@ -214,7 +214,10 @@ def get_checkpoint_path(
 
 
 def load_checkpoint(
-    ckpt_dir: Union[str, Path], best: bool = True, verbose: bool = True
+    ckpt_dir: Union[str, Path],
+    best: bool = True,
+    lightning: bool = True,
+    verbose: bool = True
 ) -> dict:
     """Load the checkpoint from the given directory.
     
@@ -225,6 +228,9 @@ def load_checkpoint(
     best : bool, optional
         Whether to load the best checkpoint, by default True.
         If False, the last checkpoint will be loaded.
+    lightning : bool, optional
+        Whether the checkpoint is loaded within a PyTorch Lightning module. If it isn't
+        the case, the "model." prefix is removed from state_dict keys. By default True.
     verbose : bool, optional
         Whether to print the checkpoint loading information, by default True.
     
@@ -240,6 +246,19 @@ def load_checkpoint(
         ckpt_fpath = ckpt_dir
 
     ckpt = torch.load(ckpt_fpath)
+    
     if verbose:
         print(f"\nLoading checkpoint from: '{ckpt_fpath}' - Epoch: {ckpt['epoch']}\n")
+    
+    if not lightning:
+        # remove "model." prefix from state_dict keys
+        state_dict = ckpt.get("state_dict", {})
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            if k.startswith("model."):
+                new_state_dict[k.replace("model.", "")] = v
+            else:
+                new_state_dict[k] = v
+        ckpt["state_dict"] = new_state_dict
+    
     return ckpt
