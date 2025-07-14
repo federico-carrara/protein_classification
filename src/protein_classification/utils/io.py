@@ -213,7 +213,9 @@ def get_checkpoint_path(
     return output[0]
 
 
-def load_checkpoint(ckpt_dir: Union[str, Path], best: bool = True) -> dict:
+def load_checkpoint(
+    ckpt_dir: Union[str, Path], best: bool = True, verbose: bool = True
+) -> dict:
     """Load the checkpoint from the given directory.
     
     Parameters
@@ -223,6 +225,8 @@ def load_checkpoint(ckpt_dir: Union[str, Path], best: bool = True) -> dict:
     best : bool, optional
         Whether to load the best checkpoint, by default True.
         If False, the last checkpoint will be loaded.
+    verbose : bool, optional
+        Whether to print the checkpoint loading information, by default True.
     
     Returns
     -------
@@ -236,5 +240,6 @@ def load_checkpoint(ckpt_dir: Union[str, Path], best: bool = True) -> dict:
         ckpt_fpath = ckpt_dir
 
     ckpt = torch.load(ckpt_fpath)
-    print(f"\nLoading checkpoint from: '{ckpt_fpath}' - Epoch: {ckpt['epoch']}\n")
+    if verbose:
+        print(f"\nLoading checkpoint from: '{ckpt_fpath}' - Epoch: {ckpt['epoch']}\n")
     return ckpt

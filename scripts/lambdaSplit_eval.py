@@ -30,7 +30,7 @@ algo_config = AlgorithmConfig(
 algo_config.training_config.batch_size = 1 # Evaluate one sample at a time
 
 # --- Data Setup ---
-ch_to_labels_dict = {0: 1, 1: 0, 2: 3, 3: 2}
+ch_to_labels_dict = {0: 0, 1: 3, 2: 2, 3: 1}
 test_dataset = LambdaSplitPredsDataset(
     data_path=f"/group/jug/federico/lambdasplit_training/2507/lambdasplit_CellAtlas_4FP_2D/{args.exp_id}/predictions_MMSE_50/pred_imgs.npz",
     ch_to_labels=ch_to_labels_dict,
@@ -48,7 +48,7 @@ test_dloader = DataLoader(
     test_dataset,
     batch_size=algo_config.training_config.batch_size,
     shuffle=False,
-    num_workers=0,
+    num_workers=3,
     pin_memory=True,
     drop_last=False,
     collate_fn=collate_test_time_crops if args.tta else None,

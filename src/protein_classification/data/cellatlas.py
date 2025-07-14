@@ -84,10 +84,12 @@ def get_cellatlas_filepaths_and_labels(
     
     curr_labels_dict = {
         "Nucleus" : 0,
-        "Endoplasmic reticulum": 1,
         "Microtubules": 2,
+        "Endoplasmic reticulum": 3,
     }
-    curr_labels_dict.update({label: (i + 3) for i, label in enumerate(protein_labels)})
+    curr_labels_dict.update({protein_labels[0]: 1})
+    if len(protein_labels) > 1:
+        curr_labels_dict.update({label: (i + 4) for i, label in enumerate(protein_labels[1:])})
     
     out_fpaths: list[str] = []
     out_labels: list[int] = []
