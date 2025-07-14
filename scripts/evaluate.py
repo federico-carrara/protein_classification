@@ -79,7 +79,7 @@ test_dloader = DataLoader(
     test_dataset,
     batch_size=algo_config.training_config.batch_size,
     shuffle=False,
-    num_workers=0,
+    num_workers=3,
     pin_memory=True,
     drop_last=False,
     collate_fn=collate_test_time_crops if data_config.test_time_crop else None,
