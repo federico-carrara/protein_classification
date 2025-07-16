@@ -8,7 +8,7 @@ from tqdm import tqdm
 from torch.utils.data.dataset import Dataset
 
 from protein_classification.data.utils import (
-    crop_img, normalize_img, resize_img, test_time_crop_img
+    crop_img, normalize_img, resize_img, test_time_crop_img, train_time_crop_img
 )
 
 PathLike = Union[Path, str]
@@ -64,6 +64,7 @@ class InMemoryDataset(Dataset):
         crop_size: Optional[int] = None,
         random_crop: bool = False,
         test_time_crop: bool = False,
+        curriculum_learning: bool = False,
         imreader: Callable = tiff.imread,
         transform: Optional[Callable] = None,
         bit_depth: Optional[int] = None,
@@ -85,6 +86,7 @@ class InMemoryDataset(Dataset):
         self.return_label = return_label
         self.random_crop = random_crop
         self.test_time_crop = test_time_crop
+        self.curriculum_learning = curriculum_learning 
         
         # Force test_time_crop to be False for train split
         if self.split == 'train':
@@ -97,6 +99,12 @@ class InMemoryDataset(Dataset):
         
         # Read, preprocess and store the images and labels in memory
         self.images, self.labels = self.read_data()
+        
+        # Get the difficulty distribution of the dataset for curriculum learning
+        if curriculum_learning:
+            self.difficulty_distribution = self._get_difficulty_distribution()
+        else:
+            self.difficulty_distribution = None
     
     def read_data(self) -> tuple[list[torch.Tensor], list[int]]:
         """Read data and preprocess them."""
@@ -116,6 +124,57 @@ class InMemoryDataset(Dataset):
             
         return images, labels
     
+    def _get_difficulty_score_distribution(
+        self, k: int = 10, metrics: list[Literal["std"]] = ["std"], bins: int = 100
+    ) -> torch.Tensor:
+        """Get the distribution of "difficulty" of crops from images in the dataset.
+
+        The difficulty of a crop is assumed to be inversely related to the amount of
+        signal present in it. Indeed, we assume that foreground crops with more signal
+        are easier to classify with respect to background crops.
+        The amount of signal can be measured by a mix of texture and variability
+        metrics, like edge detection, standard deviation, entropy, etc.
+
+        In order to compute the difficulty distribution, for each image we randomly
+        sample `k` crops of size `crop_size` and compute their difficulty metric.
+        
+        The returned tensor contains the quantiles of the difficulty scores
+        computed from the sampled crops. Larger values indicate easier crops.
+        
+        Parameters
+        ----------
+        k : int, optional
+            The number of crops to sample from each image, by default 10.
+        metrics : list[Literal["std"]], optional
+            A list of metrics to combine in order to compute the difficulty score.
+            By default ["std"].
+        bins : int, optional
+            The number of bins to use for the quantization of the difficulty distribution,
+            by default 100.
+            
+        Returns
+        -------
+        torch.Tensor
+            A tensor of shape (bins + 1,) containing the quantiles of the difficulty scores
+            computed from the sampled crops.
+        """
+        difficulty_scores: list[float] = []
+        for img in tqdm(self.images, desc="Computing difficulty distribution"):
+            for _ in range(k):
+                crop = crop_img(
+                    img, self.crop_size, random_crop=self.random_crop
+                )
+                curr_score = 0.0
+                if "std" in metrics:
+                    curr_score += crop.std().item()
+                # TODO: add more metrics here
+                difficulty_scores.append(curr_score)
+
+        difficulty_scores = torch.tensor(difficulty_scores, dtype=torch.float32)
+        return torch.quantile(
+            difficulty_scores, torch.linspace(0, 1, bins + 1), interpolation='linear'
+        )
+
     def __getitem__(self, idx: int) -> Union[torch.Tensor, tuple[torch.Tensor, int]]:
         image = self.images[idx]
         label = self.labels[idx]
@@ -123,7 +182,12 @@ class InMemoryDataset(Dataset):
         # crop to crop_size if necessary
         if self.crop_size is not None and self.img_size != self.crop_size:
             if self.split == 'train':
-                image = crop_img(image, self.crop_size, self.random_crop)
+                image = train_time_crop_img(
+                    image,
+                    crop_size=self.crop_size,
+                    random_crop=self.random_crop,
+                    difficulty_distrib=self.difficulty_distribution
+                )
             elif self.split == 'test' and self.test_time_crop:
                 image = test_time_crop_img(image, self.crop_size)
          

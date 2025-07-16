@@ -80,6 +80,74 @@ def crop_img(img: NDArray | Tensor, crop_size: int, random_crop: bool) -> NDArra
     return img[:, y:y + crop_size, x:x + crop_size]
 
 
+
+def train_time_crop_img(
+    image: Tensor,
+    crop_size: int,
+    random_crop: bool = True,
+    difficulty_distrib: Union[None, list[float]] = None,
+    epoch: int = 0,
+    total_epochs: int = 100,
+    beta_max_alpha: float = 5.0,
+    sampling_patience: int = 10
+) -> Tensor:
+    """
+    Train-time cropping with soft curriculum using Beta-distributed threshold sampling.
+
+    Parameters
+    ----------
+    image : torch.Tensor
+        Input tensor of shape (C, Y, X).
+    crop_size : int
+        Square crop size.
+    random_crop : bool
+        If True, use random cropping; otherwise, center crop.
+    difficulty_distrib : list[float], optional
+        Sorted array of difficulty scores = empirical CDF (quantile function).
+    epoch : int
+        Current epoch (0-indexed).
+    total_epochs : int
+        Total number of epochs.
+    beta_max_alpha : float
+        Initial Beta(α, 1) skew; α anneals from `beta_max_alpha` to 1.
+    sampling_patience : int
+        Maximum number of crops to sample before giving up on finding a suitable crop.
+
+    Returns
+    -------
+    torch.Tensor
+        Cropped tensor of shape (C, crop_size, crop_size).
+    """
+    crop = crop_img(image, crop_size, random_crop)
+
+    if difficulty_distrib is not None and len(difficulty_distrib) > 0:
+        # Training progress
+        p = min(epoch / total_epochs, 1.0)
+        alpha = 1.0 + (beta_max_alpha - 1.0) * (1.0 - p)
+
+        found = False
+        crops: list[Tensor] = [crop]
+        scores: list[float] = [crop.std().item()]
+        while not found and len(crops) < sampling_patience:
+            # Sample quantile from Beta(α, 1)
+            q = np.random.beta(alpha, 1.0)
+
+            # Use quantile to get threshold (difficulty_distrib is sorted CDF)
+            idx = int(q * (len(difficulty_distrib) - 1))
+            threshold = difficulty_distrib[idx]
+
+            if scores[-1] >= threshold:
+                found = True
+            else:
+                crops.append(crop_img(image, crop_size, random_crop))
+                scores.append(crops[-1].std().item())
+        
+        if not found:
+            crop = crops[np.argmax(scores)]
+
+    return crop
+
+
 def test_time_crop_img(image: Tensor, crop_size: int, overlap: int = None) -> Tensor:
     """Test time cropping, consiting in the extraction of overlapping crops from the
     input image tensor.
