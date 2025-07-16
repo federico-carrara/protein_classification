@@ -110,10 +110,10 @@ class HardLogLoss(nn.Module):
         labels = labels.float()
         loss = 0
         for i in range(self.num_classes):
-            logit_ac=logits[:, i]
-            label_ac=labels[:, i]
+            logit_ac = logits[:, i]
+            label_ac = labels[:, i]
             logit_ac, label_ac = get_hard_samples(logit_ac, label_ac)
-            loss += self.bce_loss(logit_ac,label_ac)
+            loss += self.bce_loss(logit_ac, label_ac)
         return loss / self.num_classes
 
 
