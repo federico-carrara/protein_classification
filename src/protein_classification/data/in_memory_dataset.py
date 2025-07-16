@@ -8,7 +8,8 @@ from tqdm import tqdm
 from torch.utils.data.dataset import Dataset
 
 from protein_classification.data.utils import (
-    crop_img, normalize_img, resize_img, test_time_crop_img, train_time_crop_img
+    compute_difficulty_score, crop_img, normalize_img,
+    resize_img, test_time_crop_img, train_time_crop_img
 )
 
 PathLike = Union[Path, str]
@@ -164,11 +165,7 @@ class InMemoryDataset(Dataset):
                 crop = crop_img(
                     img, self.crop_size, random_crop=self.random_crop
                 )
-                curr_score = 0.0
-                if "std" in metrics:
-                    curr_score += crop.std().item()
-                # TODO: add more metrics here
-                difficulty_scores.append(curr_score)
+                difficulty_scores.append(compute_difficulty_score(crop, metrics))
 
         difficulty_scores = torch.tensor(difficulty_scores, dtype=torch.float32)
         return torch.quantile(

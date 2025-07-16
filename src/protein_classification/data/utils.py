@@ -81,11 +81,24 @@ def crop_img(img: NDArray | Tensor, crop_size: int, random_crop: bool) -> NDArra
 
 
 
+def compute_difficulty_score(
+    image: Tensor,
+    metrics: list[Literal["std"]] = ["std"]
+) -> float:
+    """Compute the difficulty score of an image as the combination of the specified metrics."""
+    # TODO: add more metrics
+    score = 0.0
+    if "std" in metrics:
+        score += image.std().item()
+    return score
+
+
 def train_time_crop_img(
     image: Tensor,
     crop_size: int,
     random_crop: bool = True,
     difficulty_distrib: Union[None, list[float]] = None,
+    metrics: list[Literal["std"]] = ["std"],
     epoch: int = 0,
     total_epochs: int = 100,
     beta_max_alpha: float = 5.0,
@@ -104,6 +117,9 @@ def train_time_crop_img(
         If True, use random cropping; otherwise, center crop.
     difficulty_distrib : list[float], optional
         Sorted array of difficulty scores = empirical CDF (quantile function).
+    metrics : list[Literal["std"]], optional
+        A list of metrics to combine in order to compute the difficulty score.
+        By default ["std"].
     epoch : int
         Current epoch (0-indexed).
     total_epochs : int
@@ -127,7 +143,7 @@ def train_time_crop_img(
 
         found = False
         crops: list[Tensor] = [crop]
-        scores: list[float] = [crop.std().item()]
+        scores: list[float] = [compute_difficulty_score(crop, metrics)]
         while not found and len(crops) < sampling_patience:
             # Sample quantile from Beta(α, 1)
             q = np.random.beta(alpha, 1.0)
@@ -140,8 +156,8 @@ def train_time_crop_img(
                 found = True
             else:
                 crops.append(crop_img(image, crop_size, random_crop))
-                scores.append(crops[-1].std().item())
-        
+                scores.append(compute_difficulty_score(crops[-1], metrics))
+
         if not found:
             crop = crops[np.argmax(scores)]
 
