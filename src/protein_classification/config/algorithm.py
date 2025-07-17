@@ -16,7 +16,7 @@ class AlgorithmConfig(BaseModel):
     This includes model architecture and loss function configurations.
     """
     model_config = ConfigDict(
-        extra="forbid", validate_assignment=True, validate_default=True
+        extra="allow", validate_assignment=True, validate_default=True
     )
 
     architecture_config: DenseNetConfig

@@ -86,7 +86,7 @@ class DataConfig(BaseModel):
     """Configuration for data modules."""
 
     model_config = ConfigDict(
-        extra='forbid',
+        extra='allow',
         validate_assignment=True,
         validate_default=True,
     )
