@@ -128,7 +128,7 @@ class InMemoryDataset(Dataset):
     def _get_difficulty_score_distribution(
         self, k: int = 10, metrics: list[Literal["std"]] = ["std"], bins: int = 100
     ) -> torch.Tensor:
-        """Get the distribution of "difficulty" of crops from images in the dataset.
+        """Get the distribution of "difficulty" scores of crops.
 
         The difficulty of a crop is assumed to be inversely related to the amount of
         signal present in it. Indeed, we assume that foreground crops with more signal
@@ -137,8 +137,8 @@ class InMemoryDataset(Dataset):
         metrics, like edge detection, standard deviation, entropy, etc.
 
         In order to compute the difficulty distribution, for each image we randomly
-        sample `k` crops of size `crop_size` and compute their difficulty metric.
-        
+        sample `k` crops of size `crop_size` and compute their difficulty score.
+
         The returned tensor contains the quantiles of the difficulty scores
         computed from the sampled crops. Larger values indicate easier crops.
         

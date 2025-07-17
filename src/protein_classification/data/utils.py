@@ -93,10 +93,78 @@ def compute_difficulty_score(
     return score
 
 
+def curriculum_learning_sampling(
+    image: Tensor,
+    crop_size: int,
+    difficulty_distrib: Union[None, list[float]] = None,
+    metrics: list[Literal["std"]] = ["std"],
+    epoch: int = 0,
+    total_epochs: int = 100,
+    beta_max_alpha: float = 5.0,
+    sampling_patience: int = 10
+) -> Tensor:
+    """Sample a crop from an image for curriculum learning using Beta-distributed
+    threshold rejection sampling.
+
+    Parameters
+    ----------
+    image : torch.Tensor
+        Input tensor of shape (C, Y, X).
+    crop_size : int
+        Square crop size.
+    difficulty_distrib : list[float], optional
+        Sorted array of difficulty scores = empirical CDF (quantile function).
+    metrics : list[Literal["std"]], optional
+        A list of metrics to combine in order to compute the difficulty score.
+        By default ["std"].
+    epoch : int
+        Current epoch (0-indexed).
+    total_epochs : int
+        Total number of epochs.
+    beta_max_alpha : float
+        Initial Beta(α, 1) skew; α anneals from `beta_max_alpha` to 1.
+    sampling_patience : int
+        Maximum number of crops to sample before giving up on finding a suitable crop.
+
+    Returns
+    -------
+    torch.Tensor
+        Cropped tensor of shape (C, crop_size, crop_size).
+    """
+    # Training progress
+    p = min(epoch / total_epochs, 1.0)
+    alpha = 1.0 + (beta_max_alpha - 1.0) * (1.0 - p)
+
+    found = False
+    crops: list[Tensor] = [crop]
+    scores: list[float] = [compute_difficulty_score(crop, metrics)]
+    while not found and len(crops) < sampling_patience:
+        # Sample quantile from Beta(α, 1)
+        q = np.random.beta(alpha, 1.0)
+
+        # Use quantile to get threshold (difficulty_distrib is sorted CDF)
+        idx = int(q * (len(difficulty_distrib) - 1))
+        threshold = difficulty_distrib[idx]
+
+        if scores[-1] >= threshold:
+            found = True
+        else:
+            crops.append(crop_img(image, crop_size, random_crop=True))
+            scores.append(compute_difficulty_score(crops[-1], metrics))
+
+    if not found:
+        crop = crops[np.argmax(scores)]   
+    else:
+        crop = crops[-1]
+        
+    return crop
+
+
 def train_time_crop_img(
     image: Tensor,
     crop_size: int,
     random_crop: bool = True,
+    curriculum_learning: bool = True,
     difficulty_distrib: Union[None, list[float]] = None,
     metrics: list[Literal["std"]] = ["std"],
     epoch: int = 0,
@@ -115,6 +183,8 @@ def train_time_crop_img(
         Square crop size.
     random_crop : bool
         If True, use random cropping; otherwise, center crop.
+    curriculum_learning : bool
+        If True, use curriculum learning sampling; otherwise, use standard cropping.
     difficulty_distrib : list[float], optional
         Sorted array of difficulty scores = empirical CDF (quantile function).
     metrics : list[Literal["std"]], optional
@@ -135,32 +205,21 @@ def train_time_crop_img(
         Cropped tensor of shape (C, crop_size, crop_size).
     """
     crop = crop_img(image, crop_size, random_crop)
-
-    if difficulty_distrib is not None and len(difficulty_distrib) > 0:
-        # Training progress
-        p = min(epoch / total_epochs, 1.0)
-        alpha = 1.0 + (beta_max_alpha - 1.0) * (1.0 - p)
-
-        found = False
-        crops: list[Tensor] = [crop]
-        scores: list[float] = [compute_difficulty_score(crop, metrics)]
-        while not found and len(crops) < sampling_patience:
-            # Sample quantile from Beta(α, 1)
-            q = np.random.beta(alpha, 1.0)
-
-            # Use quantile to get threshold (difficulty_distrib is sorted CDF)
-            idx = int(q * (len(difficulty_distrib) - 1))
-            threshold = difficulty_distrib[idx]
-
-            if scores[-1] >= threshold:
-                found = True
-            else:
-                crops.append(crop_img(image, crop_size, random_crop))
-                scores.append(compute_difficulty_score(crops[-1], metrics))
-
-        if not found:
-            crop = crops[np.argmax(scores)]
-
+    
+    if curriculum_learning:
+        if difficulty_distrib is None:
+            raise ValueError("Difficulty distribution must be provided for curriculum learning.")
+        crop = curriculum_learning_sampling(
+            crop,
+            crop_size,
+            difficulty_distrib,
+            metrics,
+            epoch,
+            total_epochs,
+            beta_max_alpha,
+            sampling_patience
+        )
+    
     return crop
 
 
@@ -188,12 +247,11 @@ def test_time_crop_img(image: Tensor, crop_size: int, overlap: int = None) -> Te
     C, H, W = image.shape
     stride = crop_size - overlap
 
-    crops = []
-
     # Calculate number of steps in each dimension
     h_steps = max(1, (H - overlap) // stride)
     w_steps = max(1, (W - overlap) // stride)
 
+    crops: list[Tensor] = []
     for i in range(h_steps + 1):
         for j in range(w_steps + 1):
             top = min(i * stride, H - crop_size)
