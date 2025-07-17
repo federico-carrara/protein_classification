@@ -6,10 +6,11 @@ import torch
 from numpy.typing import NDArray
 from tqdm import tqdm
 from torch.utils.data.dataset import Dataset
+from torch import Tensor
 
+from protein_classification.config.data import DataAugmentationConfig
 from protein_classification.data.utils import (
-    compute_difficulty_score, crop_img, normalize_img,
-    resize_img, test_time_crop_img, train_time_crop_img
+    compute_difficulty_score, crop_img, crop_augmentation, normalize_img, resize_img
 )
 
 PathLike = Union[Path, str]
@@ -26,25 +27,11 @@ class InMemoryDataset(Dataset):
         for each sample.
     split : Literal['train', 'test']
         The split of the dataset, either 'train' or 'test'.
-    img_size : int, optional
-        The size of the input images, by default 2048. If the input images are not of this size,
-        they will be resized to this size.
-    crop_size : int, optional
-        The size of the crops used for training. If `None`, no cropping is applied.
-    random_crop : bool, optional
-        Whether to apply random cropping to the images. If `True`, crop size will be
-        randomly sampled between `crop_size` and `img_size` and applied to the images.
-        By default `False`.
-    imreader : Callable, optional
-        Function to read images from filepaths as `NDArray` arrays. 
-        By default `tiff.imread`.
-    transform : Optional[Callable], optional
-        A function/transform that takes in an image and returns a transformed version.
-        Currently, the available transforms are:
-        - `train_augmentation`: applies random noise and geometric augmentations.
-        - `geometric_augmentation`: applies only random geometric augmentations.
-        - `noise_augmentation`: applies only random noise augmentations.
-        By default `None`, which means no transformation is applied.
+    img_size : int
+        The size of the input images. If the input images are not of this size, they
+        will be resized to this size.
+    augmentation_config : DataAugmentationConfig
+        Configuration for data augmentation. If `None`, no augmentation is applied.
     bit_depth : Optional[int], optional
         The bit depth of the input images. If specified, the images will be normalized
         to the range [0, 1] based on the bit depth. If `None`, no range normalization
@@ -56,18 +43,17 @@ class InMemoryDataset(Dataset):
         By default 'range'.
     dataset_stats : Optional[tuple[float, float]], optional
         Pre-computed dataset statistics (mean, std) or (min, max) for normalization.
+    return_label : bool, optional
+        Whether to return the label along with the image. If `False`, only the image is
+        returned. By default `True`.
     """
     def __init__(
         self,
         inputs: Sequence[tuple[PathLike, int]],
         split: Literal['train', 'test'],
-        img_size: int = 768,
-        crop_size: Optional[int] = None,
-        random_crop: bool = False,
-        test_time_crop: bool = False,
-        curriculum_learning: bool = False,
-        imreader: Callable = tiff.imread,
-        transform: Optional[Callable] = None,
+        img_size: int,
+        augmentation_config: DataAugmentationConfig,
+        imreader: Callable[[PathLike], Union[NDArray, Tensor]] = tiff.imread,
         bit_depth: Optional[int] = None,
         normalize: Optional[Literal['minmax', 'std']] = None,
         dataset_stats: Optional[tuple[float, float]] = None,
@@ -78,16 +64,12 @@ class InMemoryDataset(Dataset):
         self.inputs= inputs
         self.split = split
         self.img_size = img_size
-        self.crop_size = crop_size
-        self.transform = transform
         self.bit_depth = bit_depth
         self.normalize = normalize
         self.dataset_stats = dataset_stats
         self.imreader = imreader
         self.return_label = return_label
-        self.random_crop = random_crop
-        self.test_time_crop = test_time_crop
-        self.curriculum_learning = curriculum_learning 
+        self.augmentation_config = augmentation_config 
         
         # Force test_time_crop to be False for train split
         if self.split == 'train':
@@ -102,8 +84,8 @@ class InMemoryDataset(Dataset):
         self.images, self.labels = self.read_data()
         
         # Get the difficulty distribution of the dataset for curriculum learning
-        if curriculum_learning:
-            self.difficulty_distribution = self._get_difficulty_distribution()
+        if self.augmentation_config.curriculum_learning:
+            self.difficulty_distribution = self._get_difficulty_score_distribution()
         else:
             self.difficulty_distribution = None
     
@@ -163,7 +145,7 @@ class InMemoryDataset(Dataset):
         for img in tqdm(self.images, desc="Computing difficulty distribution"):
             for _ in range(k):
                 crop = crop_img(
-                    img, self.crop_size, random_crop=self.random_crop
+                    img, self.augmentation_config.crop_size, random_crop=self.random_crop
                 )
                 difficulty_scores.append(compute_difficulty_score(crop, metrics))
 
@@ -175,18 +157,9 @@ class InMemoryDataset(Dataset):
     def __getitem__(self, idx: int) -> Union[torch.Tensor, tuple[torch.Tensor, int]]:
         image = self.images[idx]
         label = self.labels[idx]
-        
-        # crop to crop_size if necessary
-        if self.crop_size is not None and self.img_size != self.crop_size:
-            if self.split == 'train':
-                image = train_time_crop_img(
-                    image,
-                    crop_size=self.crop_size,
-                    random_crop=self.random_crop,
-                    difficulty_distrib=self.difficulty_distribution
-                )
-            elif self.split == 'test' and self.test_time_crop:
-                image = test_time_crop_img(image, self.crop_size)
+
+        # apply cropping augmentation
+        image = crop_augmentation(image, self.augmentation_config)
          
         # apply data augmentation
         if self.transform is not None:

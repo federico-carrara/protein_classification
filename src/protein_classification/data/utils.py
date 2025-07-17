@@ -1,10 +1,12 @@
-from typing import Literal, Union
+from typing import Literal, Optional, Union
 
 import numpy as np
 import torch
 from numpy.typing import NDArray
 from skimage.transform import resize
 from torch import Tensor
+
+from protein_classification.config.data import DataAugmentationConfig
 
 
 def normalize_range(
@@ -70,6 +72,9 @@ def crop_img(img: NDArray | Tensor, crop_size: int, random_crop: bool) -> NDArra
     """
     assert img.shape[-1] == img.shape[-2], "Image must be square."
     
+    if img.shape[-2:] == (crop_size, crop_size):
+        return img
+    
     img_size = img.shape[-1]
     if random_crop:
         x = np.random.randint(0, img_size - crop_size + 1)
@@ -93,7 +98,7 @@ def compute_difficulty_score(
     return score
 
 
-def curriculum_learning_sampling(
+def curriculum_learning_cropping(
     image: Tensor,
     crop_size: int,
     difficulty_distrib: Union[None, list[float]] = None,
@@ -136,7 +141,7 @@ def curriculum_learning_sampling(
     alpha = 1.0 + (beta_max_alpha - 1.0) * (1.0 - p)
 
     found = False
-    crops: list[Tensor] = [crop]
+    crops: list[Tensor] = [crop_img(image, crop_size, random_crop=True)]
     scores: list[float] = [compute_difficulty_score(crop, metrics)]
     while not found and len(crops) < sampling_patience:
         # Sample quantile from Beta(α, 1)
@@ -160,72 +165,11 @@ def curriculum_learning_sampling(
     return crop
 
 
-def train_time_crop_img(
-    image: Tensor,
-    crop_size: int,
-    random_crop: bool = True,
-    curriculum_learning: bool = True,
-    difficulty_distrib: Union[None, list[float]] = None,
-    metrics: list[Literal["std"]] = ["std"],
-    epoch: int = 0,
-    total_epochs: int = 100,
-    beta_max_alpha: float = 5.0,
-    sampling_patience: int = 10
+def overlapped_cropping(
+    image: Tensor, crop_size: int, crop_overlap: int = None
 ) -> Tensor:
-    """
-    Train-time cropping with soft curriculum using Beta-distributed threshold sampling.
-
-    Parameters
-    ----------
-    image : torch.Tensor
-        Input tensor of shape (C, Y, X).
-    crop_size : int
-        Square crop size.
-    random_crop : bool
-        If True, use random cropping; otherwise, center crop.
-    curriculum_learning : bool
-        If True, use curriculum learning sampling; otherwise, use standard cropping.
-    difficulty_distrib : list[float], optional
-        Sorted array of difficulty scores = empirical CDF (quantile function).
-    metrics : list[Literal["std"]], optional
-        A list of metrics to combine in order to compute the difficulty score.
-        By default ["std"].
-    epoch : int
-        Current epoch (0-indexed).
-    total_epochs : int
-        Total number of epochs.
-    beta_max_alpha : float
-        Initial Beta(α, 1) skew; α anneals from `beta_max_alpha` to 1.
-    sampling_patience : int
-        Maximum number of crops to sample before giving up on finding a suitable crop.
-
-    Returns
-    -------
-    torch.Tensor
-        Cropped tensor of shape (C, crop_size, crop_size).
-    """
-    crop = crop_img(image, crop_size, random_crop)
-    
-    if curriculum_learning:
-        if difficulty_distrib is None:
-            raise ValueError("Difficulty distribution must be provided for curriculum learning.")
-        crop = curriculum_learning_sampling(
-            crop,
-            crop_size,
-            difficulty_distrib,
-            metrics,
-            epoch,
-            total_epochs,
-            beta_max_alpha,
-            sampling_patience
-        )
-    
-    return crop
-
-
-def test_time_crop_img(image: Tensor, crop_size: int, overlap: int = None) -> Tensor:
-    """Test time cropping, consiting in the extraction of overlapping crops from the
-    input image tensor.
+    """Cropping consiting in the extraction of overlapping crops from the
+    input image tensor. Used at test time for ensemble predictions.
 
     Parameters
     ----------
@@ -261,6 +205,35 @@ def test_time_crop_img(image: Tensor, crop_size: int, overlap: int = None) -> Te
             crops.append(crop)
 
     return torch.stack(crops)  # Shape: (N, C, crop_size, crop_size)
+
+
+def crop_augmentation(image: Tensor, aug_config: DataAugmentationConfig) -> Tensor:
+    """Apply cropping to an image based on the provided configuration."""
+    if aug_config.crop_size is None:
+        return image
+    
+    # NOTE: these strategies are mutually exclusive
+    if aug_config.curriculum_learning:
+        return curriculum_learning_cropping(
+            image,
+            aug_config.crop_size,
+            random_crop=aug_config.random_crop,
+            curriculum_learning=aug_config.curriculum_learning,
+            difficulty_distrib=aug_config.difficulty_distrib,
+            metrics=aug_config.metrics,
+            epoch=aug_config.curr_epoch,
+            total_epochs=aug_config.total_epochs,
+            beta_max_alpha=aug_config.beta_max_alpha,
+            sampling_patience=aug_config.sampling_patience
+        )
+    elif aug_config.test_time_crop:
+        return overlapped_cropping(
+            image, aug_config.crop_size, aug_config.crop_overlap
+        )
+    else:
+        return crop_img(
+            image, aug_config.crop_size, random_crop=aug_config.random_crop
+        )
 
 
 def resize_img(img: NDArray, size: int) -> NDArray:

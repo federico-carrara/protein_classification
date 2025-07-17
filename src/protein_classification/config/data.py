@@ -1,12 +1,80 @@
 from pathlib import Path
 from typing import Callable, Literal, Optional, Sequence, Union
+from typing_extensions import Self
 
 import tifffile as tiff
 from numpy.typing import NDArray
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from torch import Tensor
 
 PathLike = Union[Path, str]
+
+
+class DataAugmentationConfig(BaseModel):
+    """Configuration for data augmentation."""
+    
+    model_config = ConfigDict(
+        extra='forbid',
+        validate_assignment=True,
+        validate_default=True,
+    )
+    
+    transform: Optional[Literal['geometric', 'noise', 'all']] = None
+    """The name of the augmentation/transform used at training time.
+    Currently, the available ones are:
+    - "geometric": applies only random geometric augmentations.
+    - "noise": applies only random noise augmentations.
+    - "all": applies all augmentations.
+    By default `None`, which means no transformation is applied."""
+    
+    crop_size: Optional[int] = None
+    """The size of the crops used for training. If `None`, no cropping is applied."""
+    
+    random_crop: bool = False
+    """Whether to apply random cropping to the images. If `False`, center cropping is
+    applied."""
+    
+    test_time_crop: bool = False
+    """Whether to apply test time cropping to the images. If `True`, overlapping crops
+    are extracted from the images during inference and final label is obtained by
+    majority voting."""
+    
+    crop_overlap: Optional[int] = None
+    """The overlap between crops at test time. If `None`, no overlap is applied.
+    This is used only if `test_time_crop` is `True`."""
+    
+    curriculum_learning: bool = False
+    """Whether to apply curriculum learning during training. If `True`, crops are sampled
+    based on their difficulty, which is computed from the image statistics."""
+
+    difficulty_distrib: Optional[list[float]] = None
+    """Sorted array of difficulty scores = empirical CDF (quantile function)."""
+    
+    metrics: list[Literal["std"]] = ["std"]
+    """A list of metrics to combine in order to compute the difficulty score.
+    By default ["std"]."""
+    
+    curr_epoch: int = 0
+    """Current epoch number, used for curriculum learning."""
+    
+    total_epochs : int
+    """Total number of epochs."""
+
+    beta_max_alpha: float = 5.0
+    """Initial Beta(α, 1) skew; α anneals from `beta_max_alpha` to 1."""
+
+    sampling_patience: int = 10
+    """Maximum number of crops to sample before giving up on finding a suitable crop."""
+    
+    @model_validator(mode='after')
+    def validate_cropping_strategy(self: Self) -> Self:
+        """Validate the cropping strategy based on the provided configuration."""
+        if self.test_time_crop and self.curriculum_learning:
+            raise ValueError(
+                "Cannot use both `test_time_crop` and `curriculum_learning` at the "
+                "same time. Please choose one of the two."
+            )
+        return self
 
 
 class DataConfig(BaseModel):
@@ -30,28 +98,8 @@ class DataConfig(BaseModel):
     img_size: int
     """Size to which images will be resized."""
     
-    crop_size: Optional[int] = None
-    """The size of the crops used for training. If `None`, no cropping is applied."""
-    
-    random_crop: bool = False
-    """Whether to apply random cropping to the images. If `False`, center cropping is
-    applied."""
-    
-    test_time_crop: bool = False
-    """Whether to apply test time cropping to the images. If `True`, overlapping crops
-    are extracted from the images during inference and final label is obtained by
-    majority voting."""
-    
     imreader: Callable[[PathLike], Union[NDArray, Tensor]] = Field(tiff.imread, exclude=True)
     """Function to read images from filepaths as `NDArray` arrays. By default `tiff.imread`."""
-    
-    transform: Optional[Literal['geometric', 'noise', 'all']] = None
-    """The name of the augmentation/transform used at training time.
-    Currently, the available ones are:
-    - "geometric": applies only random geometric augmentations.
-    - "noise": applies only random noise augmentations.
-    - "all": applies all augmentations.
-    By default `None`, which means no transformation is applied."""
     
     bit_depth: Optional[int] = None
     """The bit depth of the input images. If specified, the images will be normalized
@@ -68,3 +116,6 @@ class DataConfig(BaseModel):
     dataset_stats: Optional[tuple[float, float]] = None
     """Pre-computed dataset statistics (mean, std) or (min, max) for normalization.
     If `normalize` is specified, this must also be provided."""
+    
+    augmentation_config: Optional[DataAugmentationConfig] = None
+    """Configuration for data augmentation, including cropping and transformations."""
