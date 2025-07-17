@@ -8,8 +8,9 @@ from numpy.typing import NDArray
 from tqdm import tqdm
 from torch.utils.data.dataset import Dataset
 
+from protein_classification.config.data import DataAugmentationConfig
 from protein_classification.data.utils import (
-    crop_img, normalize_img, resize_img, test_time_crop_img
+    crop_img, normalize_img, resize_img, crop_augmentation
 )
 
 PathLike = Union[Path, str]
@@ -62,11 +63,8 @@ class LambdaSplitPredsDataset(Dataset):
         data_path: PathLike,
         ch_to_labels: dict[int, int],
         split: Literal['train', 'test'],
-        img_size: int = 768,
-        crop_size: Optional[int] = None,
-        random_crop: bool = False,
-        test_time_crop: bool = False,
-        transform: Optional[Callable] = None,
+        img_size: int,
+        augmentation_config: DataAugmentationConfig,
         bit_depth: Optional[int] = None,
         normalize: Optional[Literal['minmax', 'std']] = None,
         dataset_stats: Optional[tuple[float, float]] = None,
@@ -78,13 +76,10 @@ class LambdaSplitPredsDataset(Dataset):
         self.ch_to_labels = ch_to_labels
         self.split = split
         self.img_size = img_size
-        self.crop_size = crop_size
-        self.transform = transform
         self.bit_depth = bit_depth
         self.normalize = normalize
         self.return_label = return_label
-        self.random_crop = random_crop
-        self.test_time_crop = test_time_crop
+        self.augmentation_config = augmentation_config
         
         # Force test_time_crop to be False for train split
         if self.split == 'train':
@@ -145,12 +140,8 @@ class LambdaSplitPredsDataset(Dataset):
         image = self.images[idx]
         label = self.labels[idx]
         
-        # crop to crop_size if necessary
-        if self.crop_size is not None and self.img_size != self.crop_size:
-            if self.split == 'train':
-                image = crop_img(image, self.crop_size, self.random_crop)
-            elif self.split == 'test' and self.test_time_crop:
-                image = test_time_crop_img(image, self.crop_size)
+        # apply cropping augmentation
+        image = crop_augmentation(image, self.augmentation_config)
          
         # apply data augmentation
         if self.transform is not None:
