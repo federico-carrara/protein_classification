@@ -10,10 +10,10 @@ from pytorch_lightning.loggers import WandbLogger
 from torch.utils.data import DataLoader
 
 from protein_classification.config import (
-    AlgorithmConfig, DataConfig, DenseNetConfig, LossConfig, TrainingConfig
+    AlgorithmConfig, DataAugmentationConfig, DataConfig,
+    DenseNetConfig, LossConfig, TrainingConfig
 )
 from protein_classification.data import InMemoryDataset, ZarrDataset
-from protein_classification.data.augmentations import transforms_factory
 from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_labels
 from protein_classification.data.preprocessing import ZarrPreprocessor
 from protein_classification.data.utils import train_test_split, collate_test_time_crops
@@ -26,9 +26,10 @@ parser.add_argument("--log", action="store_true", help="Enable logging with Weig
 parser.add_argument("--in_memory", action="store_true", help="Load the dataset in memory, else use Zarr preprocessing.")
 parser.add_argument("--aug", type=str, default=None, choices=["geometric", "noise", "all"])
 parser.add_argument("--batch_size", type=int, default=32, help="Batch size for training.")
-parser.add_argument("--acc_batches", type=int, default=4, help="Number of batches to accumulate gradients over.")
-parser.add_argument("--img_size", type=int, default=768, help="Size of the input images.")
-parser.add_argument("--crop_size", type=int, default=512, help="Crop size for the input images.")
+parser.add_argument("--acc_batches", type=int, default=1, help="Number of batches to accumulate gradients over.")
+parser.add_argument("--img_size", type=int, default=2048, help="Size of the input images.")
+parser.add_argument("--crop_size", type=int, default=2048, help="Crop size for the input images.")
+parser.add_argument("--curriculum", action="store_true", help="Whether to apply curriculum learning or not.")
 args = parser.parse_args()
 
 LOGGING = args.log
@@ -40,14 +41,25 @@ torch.set_float32_matmul_precision('medium')
 dataset_stats = load_dataset_stats(
     stats_path="data_stats.json", labels=["Mitochondria"]
 )
+train_aug_config = DataAugmentationConfig(
+    transform=args.aug,
+    crop_size=args.crop_size,
+    random_crop=True,
+    test_time_crop=False,
+    crop_overlap=None,
+    curriculum_learning=True,
+    total_epochs=80,
+    sampling_patience=10,
+    beta_max_alpha=5.0,
+    metrics=["std"],
+)
+val_aug_config = train_aug_config.model_copy(update={})
 data_config = DataConfig(
     data_dir="/group/jug/federico/data/CellAtlas",
     labels=["Mitochondria"],
     img_size=args.img_size,
-    crop_size=args.crop_size,
-    random_crop=True,
-    test_time_crop=True,
-    transform=args.aug,
+    train_augmentation_config=train_aug_config,
+    val_augmentation_config=val_aug_config,
     bit_depth=8,
     normalize="std",
     dataset_stats=(dataset_stats["mean"], dataset_stats["std"]),
@@ -104,10 +116,7 @@ if IN_MEMORY:
         split="train",
         return_label=True,
         img_size=data_config.img_size,
-        crop_size=data_config.crop_size,
-        random_crop=data_config.random_crop,
-        test_time_crop=False,
-        transform=transforms_factory(data_config.transform),
+        augmentation_config=data_config.train_augmentation_config,
         bit_depth=data_config.bit_depth,
         normalize=data_config.normalize,
         dataset_stats=data_config.dataset_stats,
@@ -117,10 +126,7 @@ if IN_MEMORY:
         split="test",
         return_label=True,
         img_size=data_config.img_size,
-        crop_size=data_config.crop_size,
-        random_crop=False,
-        test_time_crop=data_config.test_time_crop,
-        transform=None,
+        augmentation_config=data_config.val_augmentation_config,
         bit_depth=data_config.bit_depth,
         normalize=data_config.normalize,
         dataset_stats=data_config.dataset_stats,
@@ -149,12 +155,12 @@ else:
         split="train",
         crop_size=data_config.crop_size,
         random_crop=data_config.random_crop,
-        transform=transforms_factory(data_config.transform),
+        # transform=transforms_factory(train_data_config.transform),
     )
     val_dataset = ZarrDataset(
         path_to_zarr=val_zarr_path,
         split="test",
-        crop_size=data_config.crop_size,
+        crop_size=  data_config.crop_size,
         random_crop=False,  # No random cropping for validation
         transform=None,  # No transformation for validation
     )
@@ -173,7 +179,7 @@ val_dloader = DataLoader(
     num_workers=3,
     pin_memory=True,
     drop_last=False,
-    collate_fn=collate_test_time_crops if data_config.test_time_crop else None,
+    collate_fn=collate_test_time_crops if val_aug_config.test_time_crop else None,
 )
 
 # --- Initialize Logger + Log configs ---

@@ -6,7 +6,7 @@ import torch
 from pytorch_lightning import Trainer
 from torch.utils.data import DataLoader
 
-from protein_classification.config import AlgorithmConfig, DataConfig
+from protein_classification.config import AlgorithmConfig, DataConfig, DataAugmentationConfig
 from protein_classification.data import InMemoryDataset, ZarrDataset
 from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_labels
 from protein_classification.data.preprocessing import ZarrPreprocessor
@@ -35,10 +35,14 @@ data_config = DataConfig(
         config_fpath=args.ckpt_dir, config_type="data",
     )
 )
-data_config.random_crop = False  # No random cropping for evaluation
-data_config.transform = None  # No transformation for evaluation
-if args.tta:
-    data_config.test_time_crop = True  # Enable test time cropping for evaluation
+data_config.test_augmentation_config = DataAugmentationConfig(
+    transform=None,
+    crop_size=data_config.train_augmentation_config.crop_size,
+    random_crop=False,
+    test_time_crop=args.tta,
+    crop_overlap=None,
+    curriculum_learning=False,
+)
 
 # --- Data Setup ---
 input_data, curr_labels = get_cellatlas_filepaths_and_labels(
@@ -56,11 +60,15 @@ if args.in_memory:
         inputs=test_input_data,
         split="test",
         return_label=True,
-        **data_config.model_dump(exclude={"data_dir", "labels"})
+        img_size=data_config.img_size,
+        augmentation_config=data_config.test_augmentation_config,
+        bit_depth=data_config.bit_depth,
+        normalize=data_config.normalize,
+        dataset_stats=data_config.dataset_stats,
     )
 else:
     test_preprocessor = ZarrPreprocessor(
-        inputs=input_data,
+        inputs=test_input_data,
         output_path="./test_preprocessed_data.zarr",
         img_size=data_config.img_size,
         normalize=data_config.normalize,
@@ -71,9 +79,9 @@ else:
     test_dataset = ZarrDataset(
         path_to_zarr=test_zarr_path,
         split="test",
-        crop_size=data_config.crop_size,
-        random_crop=data_config.random_crop,
-        transform=data_config.transform,
+        crop_size=data_config.test_augmentation_config.crop_size,
+        random_crop=data_config.test_augmentation_config.random_crop,
+        transform=data_config.test_augmentation_config.transform,
     )
 test_dloader = DataLoader(
     test_dataset,
@@ -82,7 +90,10 @@ test_dloader = DataLoader(
     num_workers=3,
     pin_memory=True,
     drop_last=False,
-    collate_fn=collate_test_time_crops if data_config.test_time_crop else None,
+    collate_fn=(
+        collate_test_time_crops 
+        if data_config.test_augmentation_config.test_time_crop else None
+    ),
 )
 
 # --- Setup Model & load checkpoint ---
@@ -105,7 +116,7 @@ for batch in outputs:
     labels.append(batch_labels)
 
 # aggregate results in case of test time cropping
-if data_config.test_time_crop:
+if data_config.test_augmentation_config.test_time_crop:
     probs_tta = [torch.mean(p, dim=0) for p in probs]
     labels_tta = [l[0].unsqueeze(0) for l in labels]
     preds_majority = [torch.mode(p, dim=0).values.unsqueeze(0) for p in preds]

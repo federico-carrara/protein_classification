@@ -85,7 +85,6 @@ def crop_img(img: NDArray | Tensor, crop_size: int, random_crop: bool) -> NDArra
     return img[:, y:y + crop_size, x:x + crop_size]
 
 
-
 def compute_difficulty_score(
     image: Tensor,
     metrics: list[Literal["std"]] = ["std"]
@@ -141,7 +140,8 @@ def curriculum_learning_cropping(
     alpha = 1.0 + (beta_max_alpha - 1.0) * (1.0 - p)
 
     found = False
-    crops: list[Tensor] = [crop_img(image, crop_size, random_crop=True)]
+    crop = crop_img(image, crop_size, random_crop=True)
+    crops: list[Tensor] = [crop]
     scores: list[float] = [compute_difficulty_score(crop, metrics)]
     while not found and len(crops) < sampling_patience:
         # Sample quantile from Beta(α, 1)
@@ -166,7 +166,7 @@ def curriculum_learning_cropping(
 
 
 def overlapped_cropping(
-    image: Tensor, crop_size: int, crop_overlap: int = None
+    image: Tensor, crop_size: int, overlap: int = None
 ) -> Tensor:
     """Cropping consiting in the extraction of overlapping crops from the
     input image tensor. Used at test time for ensemble predictions.
@@ -207,7 +207,12 @@ def overlapped_cropping(
     return torch.stack(crops)  # Shape: (N, C, crop_size, crop_size)
 
 
-def crop_augmentation(image: Tensor, aug_config: DataAugmentationConfig) -> Tensor:
+def crop_augmentation(
+    image: Tensor,
+    aug_config: DataAugmentationConfig,
+    curr_epoch: int,
+    difficulty_distribution: Optional[list[float]] = None
+) -> Tensor:
     """Apply cropping to an image based on the provided configuration."""
     if aug_config.crop_size is None:
         return image
@@ -216,12 +221,10 @@ def crop_augmentation(image: Tensor, aug_config: DataAugmentationConfig) -> Tens
     if aug_config.curriculum_learning:
         return curriculum_learning_cropping(
             image,
-            aug_config.crop_size,
-            random_crop=aug_config.random_crop,
-            curriculum_learning=aug_config.curriculum_learning,
-            difficulty_distrib=aug_config.difficulty_distrib,
+            crop_size=aug_config.crop_size,
+            difficulty_distrib=difficulty_distribution,
             metrics=aug_config.metrics,
-            epoch=aug_config.curr_epoch,
+            epoch=curr_epoch,
             total_epochs=aug_config.total_epochs,
             beta_max_alpha=aug_config.beta_max_alpha,
             sampling_patience=aug_config.sampling_patience

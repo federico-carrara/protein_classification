@@ -9,6 +9,7 @@ from torch.utils.data.dataset import Dataset
 from torch import Tensor
 
 from protein_classification.config.data import DataAugmentationConfig
+from protein_classification.data.augmentations import transforms_factory
 from protein_classification.data.utils import (
     compute_difficulty_score, crop_img, crop_augmentation, normalize_img, resize_img
 )
@@ -70,7 +71,12 @@ class InMemoryDataset(Dataset):
         self.imreader = imreader
         self.return_label = return_label
         self.augmentation_config = augmentation_config 
+        self.current_epoch = 0 # used for curriculum learning
         
+        # Get transformation function for augmentation
+        self.transform = transforms_factory(self.augmentation_config.transform)
+        
+        # FIXME: checks these
         # Force test_time_crop to be False for train split
         if self.split == 'train':
             self.test_time_crop = False
@@ -88,6 +94,10 @@ class InMemoryDataset(Dataset):
             self.difficulty_distribution = self._get_difficulty_score_distribution()
         else:
             self.difficulty_distribution = None
+            
+    def set_epoch(self, epoch: int) -> None:
+        """Set the current epoch for curriculum learning."""
+        self.current_epoch = epoch
     
     def read_data(self) -> tuple[list[torch.Tensor], list[int]]:
         """Read data and preprocess them."""
@@ -145,7 +155,7 @@ class InMemoryDataset(Dataset):
         for img in tqdm(self.images, desc="Computing difficulty distribution"):
             for _ in range(k):
                 crop = crop_img(
-                    img, self.augmentation_config.crop_size, random_crop=self.random_crop
+                    img, self.augmentation_config.crop_size, self.augmentation_config.random_crop
                 )
                 difficulty_scores.append(compute_difficulty_score(crop, metrics))
 
@@ -159,7 +169,12 @@ class InMemoryDataset(Dataset):
         label = self.labels[idx]
 
         # apply cropping augmentation
-        image = crop_augmentation(image, self.augmentation_config)
+        image = crop_augmentation(
+            image,
+            self.augmentation_config,
+            self.current_epoch,
+            self.difficulty_distribution
+        )
          
         # apply data augmentation
         if self.transform is not None:

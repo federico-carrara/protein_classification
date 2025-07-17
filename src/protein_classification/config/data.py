@@ -46,19 +46,13 @@ class DataAugmentationConfig(BaseModel):
     curriculum_learning: bool = False
     """Whether to apply curriculum learning during training. If `True`, crops are sampled
     based on their difficulty, which is computed from the image statistics."""
-
-    difficulty_distrib: Optional[list[float]] = None
-    """Sorted array of difficulty scores = empirical CDF (quantile function)."""
     
     metrics: list[Literal["std"]] = ["std"]
     """A list of metrics to combine in order to compute the difficulty score.
     By default ["std"]."""
-    
-    curr_epoch: int = 0
-    """Current epoch number, used for curriculum learning."""
-    
-    total_epochs : int
-    """Total number of epochs."""
+
+    total_epochs: Optional[int] = Field(None, ge=0)
+    """Total number of epochs on which curriculum learning is applied."""
 
     beta_max_alpha: float = 5.0
     """Initial Beta(α, 1) skew; α anneals from `beta_max_alpha` to 1."""
@@ -74,6 +68,17 @@ class DataAugmentationConfig(BaseModel):
                 "Cannot use both `test_time_crop` and `curriculum_learning` at the "
                 "same time. Please choose one of the two."
             )
+        return self
+    
+    @model_validator(mode='after')
+    def validate_config(self: Self) -> Self:
+        """Validate the configuration."""
+        if self.curriculum_learning and not self.random_crop:
+            print(
+                "Warning: `curriculum_learning` is enabled, so `random_crop` will be"
+                " forced to `True`."
+            )
+            self.random_crop = True
         return self
 
 
@@ -117,5 +122,11 @@ class DataConfig(BaseModel):
     """Pre-computed dataset statistics (mean, std) or (min, max) for normalization.
     If `normalize` is specified, this must also be provided."""
     
-    augmentation_config: Optional[DataAugmentationConfig] = None
+    train_augmentation_config: Optional[DataAugmentationConfig] = None
     """Configuration for data augmentation, including cropping and transformations."""
+    
+    val_augmentation_config: Optional[DataAugmentationConfig] = None
+    """Configuration for validation data augmentation. If `None`, no augmentation is applied."""
+
+    test_augmentation_config: Optional[DataAugmentationConfig] = None
+    """Configuration for test data augmentation. If `None`, no augmentation is applied."""

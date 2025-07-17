@@ -96,3 +96,9 @@ class BioStructClassifier(pl.LightningModule):
             'lr_scheduler': lr_scheduler,
             'monitor': 'val_loss',
         }
+    
+    def on_train_epoch_start(self) -> None:
+        """Set the current epoch in the dataset class for curriculum learning."""
+        dloader = self.trainer.train_dataloader
+        if hasattr(dloader, 'dataset') and hasattr(dloader.dataset, 'set_epoch'):
+            dloader.dataset.set_epoch(self.current_epoch)
