@@ -34,18 +34,12 @@ class DataAugmentationConfig(BaseModel):
     """Whether to apply random cropping to the images. If `False`, center cropping is
     applied."""
     
-    test_time_crop: bool = False
-    """Whether to apply test time cropping to the images. If `True`, overlapping crops
-    are extracted from the images during inference and final label is obtained by
-    majority voting."""
+    strategy: Optional[Literal["curriculum", "overlap", "background"]] = None
+    """The cropping strategy to use. If `None`, simple cropping is applied."""
     
     crop_overlap: Optional[int] = None
     """The overlap between crops at test time. If `None`, no overlap is applied.
-    This is used only if `test_time_crop` is `True`."""
-    
-    curriculum_learning: bool = False
-    """Whether to apply curriculum learning during training. If `True`, crops are sampled
-    based on their difficulty, which is computed from the image statistics."""
+    This is used for "overlap" strategy."""
     
     metrics: list[Literal["std"]] = ["std"]
     """A list of metrics to combine in order to compute the difficulty score.
@@ -60,23 +54,21 @@ class DataAugmentationConfig(BaseModel):
     sampling_patience: int = 10
     """Maximum number of crops to sample before giving up on finding a suitable crop."""
     
-    @model_validator(mode='after')
-    def validate_cropping_strategy(self: Self) -> Self:
-        """Validate the cropping strategy based on the provided configuration."""
-        if self.test_time_crop and self.curriculum_learning:
-            raise ValueError(
-                "Cannot use both `test_time_crop` and `curriculum_learning` at the "
-                "same time. Please choose one of the two."
-            )
-        return self
-    
+    bg_threshold: Optional[float] = None
+    """Threshold for `metrics` values for identification of background crops.
+    If `None`, the threshold is inferred from the metric distribution."""
+
     @model_validator(mode='after')
     def validate_config(self: Self) -> Self:
         """Validate the configuration."""
-        if self.curriculum_learning and not self.random_crop:
+        if (
+            self.strategy == "curriculum" or
+            self.strategy == "background" and
+            not self.random_crop
+        ):
             print(
-                "Warning: `curriculum_learning` is enabled, so `random_crop` will be"
-                " forced to `True`."
+                "Warning: `curriculum` or `background` strategy is enabled, "
+                "so `random_crop` will be forced to `True`."
             )
             self.random_crop = True
         return self

@@ -11,7 +11,8 @@ from torch import Tensor
 from protein_classification.config.data import DataAugmentationConfig
 from protein_classification.data.augmentations import transforms_factory
 from protein_classification.data.utils import (
-    compute_difficulty_score, crop_img, crop_augmentation, normalize_img, resize_img
+    compute_difficulty_score, crop_img, normalize_img, resize_img,
+    get_curriculum_learning_crops, get_overlapping_crops, identify_background_crops
 )
 
 PathLike = Union[Path, str]
@@ -88,9 +89,11 @@ class InMemoryDataset(Dataset):
         
         # Read, preprocess and store the images and labels in memory
         self.images, self.labels = self.read_data()
+        self.unique_labels = set(self.labels)
+        self.bg_label = sorted(self.unique_labels)[-1] + 1
         
         # Get the difficulty distribution of the dataset for curriculum learning
-        if self.augmentation_config.curriculum_learning:
+        if self.augmentation_config.strategy in ["curriculum", "rm_background"]:
             self.difficulty_distribution = self._get_difficulty_score_distribution()
         else:
             self.difficulty_distribution = None
@@ -119,7 +122,7 @@ class InMemoryDataset(Dataset):
     
     def _get_difficulty_score_distribution(
         self, k: int = 10, metrics: list[Literal["std"]] = ["std"], bins: int = 100
-    ) -> torch.Tensor:
+    ) -> dict[int, torch.Tensor]:
         """Get the distribution of "difficulty" scores of crops.
 
         The difficulty of a crop is assumed to be inversely related to the amount of
@@ -147,35 +150,80 @@ class InMemoryDataset(Dataset):
             
         Returns
         -------
-        torch.Tensor
-            A tensor of shape (bins + 1,) containing the quantiles of the difficulty scores
-            computed from the sampled crops.
+        dict[int, torch.Tensor]
+            A dictionary of tensors of shape (bins + 1,) representing the quantiles of the
+            difficulty scores for each label computed over the sampled crops.
         """
-        difficulty_scores: list[float] = []
-        for img in tqdm(self.images, desc="Computing difficulty distribution"):
+        difficulty_scores: dict[int, list[float]] = {
+            label: [] for label in set(self.labels)
+        }
+        for img, label in tqdm(
+            zip(self.images, self.labels),
+            desc="Computing difficulty distribution",
+            total=len(self.images)
+        ):
             for _ in range(k):
                 crop = crop_img(
                     img, self.augmentation_config.crop_size, self.augmentation_config.random_crop
                 )
-                difficulty_scores.append(compute_difficulty_score(crop, metrics))
+                difficulty_scores[label].append(compute_difficulty_score(crop, metrics))
 
-        difficulty_scores = torch.tensor(difficulty_scores, dtype=torch.float32)
-        return torch.quantile(
-            difficulty_scores, torch.linspace(0, 1, bins + 1), interpolation='linear'
-        )
+        difficulty_scores = {
+            label: torch.tensor(scores, dtype=torch.float32)
+            for label, scores in difficulty_scores.items()
+        }
+        return {
+            label: torch.quantile(scores, torch.linspace(0, 1, bins + 1), interpolation='linear')
+            for label, scores in difficulty_scores.items()
+        }
+
+    def _crop(self, image: Tensor, label: int) -> tuple[Tensor, int]:
+        """Apply cropping to an image based on the provided configuration."""
+        if self.augmentation_config.crop_size is None:
+            return image, label
+
+        # NOTE: these strategies are mutually exclusive
+        if self.augmentation_config.strategy == "rm_background":
+            return identify_background_crops(
+                image,
+                label,
+                crop_size=self.augmentation_config.crop_size,
+                metrics=self.augmentation_config.metrics,
+                threshold=None,
+                difficulty_distribution=self.difficulty_distribution,
+                bg_label=self.augmentation_config.bg_label
+            )
+        elif self.augmentation_config.strategy == "curriculum":
+            return get_curriculum_learning_crops(
+                image,
+                crop_size=self.augmentation_config.crop_size,
+                difficulty_distrib=self.difficulty_distribution,
+                metrics=self.augmentation_config.metrics,
+                epoch=self.current_epoch,
+                total_epochs=self.augmentation_config.total_epochs,
+                beta_max_alpha=self.augmentation_config.beta_max_alpha,
+                sampling_patience=self.augmentation_config.sampling_patience
+            ), label
+        elif self.augmentation_config.strategy == "overlap":
+            return get_overlapping_crops(
+                image,
+                self.augmentation_config.crop_size,
+                self.augmentation_config.crop_overlap
+            ), label
+        else:
+            return crop_img(
+                image,
+                self.augmentation_config.crop_size,
+                self.augmentation_config.random_crop
+            ), label
 
     def __getitem__(self, idx: int) -> Union[torch.Tensor, tuple[torch.Tensor, int]]:
         image = self.images[idx]
         label = self.labels[idx]
 
         # apply cropping augmentation
-        image = crop_augmentation(
-            image,
-            self.augmentation_config,
-            self.current_epoch,
-            self.difficulty_distribution
-        )
-         
+        image, label = self._crop(image, label)
+
         # apply data augmentation
         if self.transform is not None:
             image = self.transform(image, bit_depth=self.bit_depth)

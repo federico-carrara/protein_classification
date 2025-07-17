@@ -97,7 +97,7 @@ def compute_difficulty_score(
     return score
 
 
-def curriculum_learning_cropping(
+def get_curriculum_learning_crops(
     image: Tensor,
     crop_size: int,
     difficulty_distrib: Union[None, list[float]] = None,
@@ -165,11 +165,12 @@ def curriculum_learning_cropping(
     return crop
 
 
-def overlapped_cropping(
+def get_overlapping_crops(
     image: Tensor, crop_size: int, overlap: int = None
 ) -> Tensor:
-    """Cropping consiting in the extraction of overlapping crops from the
-    input image tensor. Used at test time for ensemble predictions.
+    """Extract multiple overlapping crops from the input image tensor.
+    
+    Used at test time for ensemble predictions.
 
     Parameters
     ----------
@@ -207,36 +208,34 @@ def overlapped_cropping(
     return torch.stack(crops)  # Shape: (N, C, crop_size, crop_size)
 
 
-def crop_augmentation(
+def identify_background_crops(
     image: Tensor,
-    aug_config: DataAugmentationConfig,
-    curr_epoch: int,
-    difficulty_distribution: Optional[list[float]] = None
-) -> Tensor:
-    """Apply cropping to an image based on the provided configuration."""
-    if aug_config.crop_size is None:
-        return image
+    label: int,
+    crop_size: int,
+    metrics: list[Literal["std"]] = ["std"],
+    threshold: Optional[float] = None,
+    difficulty_distribution: Optional[list[float]] = None,
+    bg_label: int = -1
+) -> tuple[Tensor, int]:
+    """Apply cropping to an image. If the crop doesn't contain enough signal
+    then it is assigned the background label.
     
-    # NOTE: these strategies are mutually exclusive
-    if aug_config.curriculum_learning:
-        return curriculum_learning_cropping(
-            image,
-            crop_size=aug_config.crop_size,
-            difficulty_distrib=difficulty_distribution,
-            metrics=aug_config.metrics,
-            epoch=curr_epoch,
-            total_epochs=aug_config.total_epochs,
-            beta_max_alpha=aug_config.beta_max_alpha,
-            sampling_patience=aug_config.sampling_patience
-        )
-    elif aug_config.test_time_crop:
-        return overlapped_cropping(
-            image, aug_config.crop_size, aug_config.crop_overlap
-        )
+    The signal threshold is either provided as input to the function or
+    computed from the difficulty distribution of the dataset.
+    """
+    if threshold is None:
+        if difficulty_distribution is None:
+            raise ValueError(
+                "Either `threshold` or `difficulty_distribution` must be provided."
+            )
+        threshold = difficulty_distribution[10] # 10% quantile
+        
+    crop = crop_img(image, crop_size, random_crop=True)
+    score = compute_difficulty_score(crop, metrics)
+    if score < threshold:
+        return crop, bg_label
     else:
-        return crop_img(
-            image, aug_config.crop_size, random_crop=aug_config.random_crop
-        )
+        return crop, label
 
 
 def resize_img(img: NDArray, size: int) -> NDArray:
