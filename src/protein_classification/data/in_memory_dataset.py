@@ -181,17 +181,16 @@ class InMemoryDataset(Dataset):
         """Apply cropping to an image based on the provided configuration."""
         if self.augmentation_config.crop_size is None:
             return image, label
-
-        # NOTE: these strategies are mutually exclusive
-        if self.augmentation_config.strategy == "rm_background":
+    
+        if self.augmentation_config.strategy == "background":
             return identify_background_crops(
                 image,
                 label,
                 crop_size=self.augmentation_config.crop_size,
                 metrics=self.augmentation_config.metrics,
-                threshold=None,
+                threshold=self.augmentation_config.bg_threshold,
                 difficulty_distribution=self.difficulty_distribution,
-                bg_label=self.augmentation_config.bg_label
+                bg_label=self.bg_label
             )
         elif self.augmentation_config.strategy == "curriculum":
             return get_curriculum_learning_crops(

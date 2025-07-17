@@ -10,7 +10,7 @@ from torch.utils.data.dataset import Dataset
 
 from protein_classification.config.data import DataAugmentationConfig
 from protein_classification.data.utils import (
-    crop_img, normalize_img, resize_img, crop_augmentation
+    crop_img, normalize_img, resize_img
 )
 
 PathLike = Union[Path, str]
