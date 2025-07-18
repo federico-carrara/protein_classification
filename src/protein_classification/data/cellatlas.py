@@ -1,4 +1,4 @@
-"""Functions to get file paths and labels for the Cell Atlas dataset."""
+"""Functions to get file paths and labels for the CellAtlas dataset."""
 import json
 from collections import defaultdict
 from pathlib import Path
