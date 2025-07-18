@@ -1,7 +1,6 @@
 import argparse
 import json
 
-import pandas as pd
 import torch
 from pytorch_lightning import Trainer
 from torch.utils.data import DataLoader

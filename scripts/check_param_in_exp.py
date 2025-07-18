@@ -3,8 +3,8 @@ import os
 from typing import Any
 
 
-exp_ids = tuple(range(1, 15)) + tuple(range(17, 43))
-ckpt_dir = "/group/jug/federico/classification_training/2507/DenseNet121_4Cl_Mitochondria/"
+exp_ids = tuple(range(1, 11))
+ckpt_dir = "/group/jug/federico/classification_training/2507/DenseNet121_5Cl_Mitochondria/"
 params = ["img_size", "crop_size", "transform", "batch_size", "accumulate_grad_batches"]
 configs = ["data_config", "data_config", "data_config", "algorithm_config", "algorithm_config"]
 
@@ -22,7 +22,10 @@ def check_param_in_experiment(exp_id: int, param: str, ckpt_dir: str, config: st
     if config == "algorithm_config":
         config_data = config_data.get("training_config", {})
     
-    return config_data.get(param)
+    if param in ["crop_size", "transform"]:
+        return config_data.get("train_augmentation_config", {}).get(param)
+    else:
+        return config_data.get(param)
 
 
 if __name__ == "__main__":
