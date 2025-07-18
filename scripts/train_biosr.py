@@ -24,7 +24,7 @@ from protein_classification.utils.io import load_dataset_stats, get_log_dir, log
 parser = argparse.ArgumentParser(description="Train a protein classification model.")
 parser.add_argument("--log", action="store_true", help="Enable logging with Weights & Biases.")
 parser.add_argument("--in_memory", action="store_true", help="Load the dataset in memory, else use Zarr preprocessing.")
-parser.add_argument("--aug", type=str, default="all", choices=["geometric", "noise", "all"])
+parser.add_argument("--aug", type=str, default=None, choices=["geometric", "noise", "all"])
 parser.add_argument("--batch_size", type=int, default=32, help="Batch size for training.")
 parser.add_argument("--acc_batches", type=int, default=1, help="Number of batches to accumulate gradients over.")
 parser.add_argument("--img_size", type=int, default=1004, help="Size of the input images.")

@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 
 from protein_classification.config import AlgorithmConfig, DataConfig, DataAugmentationConfig
 from protein_classification.data import InMemoryDataset, ZarrDataset
+from protein_classification.data.biosr import get_biosr_filepaths_and_labels
 from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_labels
 from protein_classification.data.preprocessing import ZarrPreprocessor
 from protein_classification.data.utils import train_test_split, collate_test_time_crops
@@ -17,6 +18,7 @@ from protein_classification.utils.io import load_config, load_checkpoint
 parser = argparse.ArgumentParser()
 parser.add_argument("--ckpt_dir", type=str, required=True)
 parser.add_argument("--in_memory", action="store_true", help="Load the dataset in memory, else use Zarr preprocessing.")
+parser.add_argument("--dataset", type=str, default="CellAtlas", choices=["CellAtlas", "BioSR"], help="Dataset to evaluate.")
 parser.add_argument("--tta", action="store_true", help="Enable test time augmentation (TTA) with overlapping crops.")
 parser.add_argument("--debug", action="store_true", help="Enable debug mode for faster evaluation with fewer samples.")
 args = parser.parse_args()
@@ -40,15 +42,20 @@ data_config.test_augmentation_config = DataAugmentationConfig(
     transform=None,
     crop_size=data_config.train_augmentation_config.crop_size,
     random_crop=True,
-    strategy="background",
+    strategy="overlap",
     metrics=["std"],
     bg_threshold=3.0, # Default threshold for background crops
 )
 
 # --- Data Setup ---
-input_data, curr_labels = get_cellatlas_filepaths_and_labels(
-    data_dir=data_config.data_dir, protein_labels=data_config.labels,
-)
+if args.dataset == "BioSR":
+    input_data, curr_labels = get_biosr_filepaths_and_labels(
+        data_dir=data_config.data_dir, protein_labels=data_config.labels,
+    )
+elif args.dataset == "CellAtlas":
+    input_data, curr_labels = get_cellatlas_filepaths_and_labels(
+        data_dir=data_config.data_dir, protein_labels=data_config.labels,
+    )
 if args.debug:
     input_data = input_data[:50]  # Use only a few samples for debugging
 _, test_input_data = train_test_split(
