@@ -19,9 +19,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--ckpt_dir", type=str, required=True)
 parser.add_argument("--in_memory", action="store_true", help="Load the dataset in memory, else use Zarr preprocessing.")
 parser.add_argument("--tta", action="store_true", help="Enable test time augmentation (TTA) with overlapping crops.")
+parser.add_argument("--debug", action="store_true", help="Enable debug mode for faster evaluation with fewer samples.")
 args = parser.parse_args()
 
 torch.set_float32_matmul_precision('medium')
+
 
 # --- Load configurations ---
 algo_config = AlgorithmConfig(
@@ -38,16 +40,18 @@ data_config = DataConfig(
 data_config.test_augmentation_config = DataAugmentationConfig(
     transform=None,
     crop_size=data_config.train_augmentation_config.crop_size,
-    random_crop=False,
-    test_time_crop=args.tta,
-    crop_overlap=None,
-    curriculum_learning=False,
+    random_crop=True,
+    strategy="background",
+    metrics=["std"],
+    bg_threshold=3.0, # Default threshold for background crops
 )
 
 # --- Data Setup ---
 input_data, curr_labels = get_cellatlas_filepaths_and_labels(
     data_dir=data_config.data_dir, protein_labels=data_config.labels,
 )
+if args.debug:
+    input_data = input_data[:50]  # Use only a few samples for debugging
 _, test_input_data = train_test_split(
     input_data, train_ratio=0.9, deterministic=True
 )
@@ -92,7 +96,7 @@ test_dloader = DataLoader(
     drop_last=False,
     collate_fn=(
         collate_test_time_crops 
-        if data_config.test_augmentation_config.test_time_crop else None
+        if data_config.test_augmentation_config.strategy == "overlap" else None
     ),
 )
 
@@ -116,7 +120,7 @@ for batch in outputs:
     labels.append(batch_labels)
 
 # aggregate results in case of test time cropping
-if data_config.test_augmentation_config.test_time_crop:
+if data_config.test_augmentation_config.strategy == "overlap":
     probs_tta = [torch.mean(p, dim=0) for p in probs]
     labels_tta = [l[0].unsqueeze(0) for l in labels]
     preds_majority = [torch.mode(p, dim=0).values.unsqueeze(0) for p in preds]
@@ -130,20 +134,23 @@ metrics = compute_classification_metrics(
     num_classes=len(curr_labels),
     average="macro",
 )
-metrics_meanprobs = compute_classification_metrics(
-    preds=torch.cat(preds_meanprobs),
-    gts=torch.cat(labels_tta),
-    probs=torch.cat(probs_tta),
-    num_classes=len(curr_labels),
-    average="macro",
-)
-metrics_majority = compute_classification_metrics(
-    preds=torch.cat(preds_majority),
-    gts=torch.cat(labels_tta),
-    probs=torch.cat(probs_tta),
-    num_classes=len(curr_labels),
-    average="macro",
-)
+if data_config.test_augmentation_config.strategy == "overlap":
+    metrics_meanprobs = compute_classification_metrics(
+        preds=torch.cat(preds_meanprobs),
+        gts=torch.cat(labels_tta),
+        probs=torch.cat(probs_tta),
+        num_classes=len(curr_labels),
+        average="macro",
+    )
+    metrics_majority = compute_classification_metrics(
+        preds=torch.cat(preds_majority),
+        gts=torch.cat(labels_tta),
+        probs=torch.cat(probs_tta),
+        num_classes=len(curr_labels),
+        average="macro",
+    )
+else:
+    metrics_meanprobs = metrics_majority = None
 
 metrics = {
     "standard": metrics,

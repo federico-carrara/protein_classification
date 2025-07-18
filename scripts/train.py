@@ -29,7 +29,7 @@ parser.add_argument("--batch_size", type=int, default=32, help="Batch size for t
 parser.add_argument("--acc_batches", type=int, default=1, help="Number of batches to accumulate gradients over.")
 parser.add_argument("--img_size", type=int, default=2048, help="Size of the input images.")
 parser.add_argument("--crop_size", type=int, default=2048, help="Crop size for the input images.")
-parser.add_argument("--curriculum", action="store_true", help="Whether to apply curriculum learning or not.")
+parser.add_argument("--debug", action="store_true", help="Enable debug mode for faster training with fewer samples.")
 args = parser.parse_args()
 
 LOGGING = args.log
@@ -45,13 +45,9 @@ train_aug_config = DataAugmentationConfig(
     transform=args.aug,
     crop_size=args.crop_size,
     random_crop=True,
-    test_time_crop=False,
-    crop_overlap=None,
-    curriculum_learning=True,
-    total_epochs=80,
-    sampling_patience=10,
-    beta_max_alpha=5.0,
+    strategy="background",
     metrics=["std"],
+    bg_threshold=3.0, # Default threshold for background crops
 )
 val_aug_config = train_aug_config.model_copy(update={})
 data_config = DataConfig(
@@ -66,7 +62,7 @@ data_config = DataConfig(
 )
 model_config = DenseNetConfig(
     architecture="densenet121",
-    num_classes=4,
+    num_classes=4 + 1, # 4 classes + 1 for background
     num_init_features=64,
     dropout_block=True,
 )
@@ -99,6 +95,8 @@ algo_config = AlgorithmConfig(
 input_data, curr_labels = get_cellatlas_filepaths_and_labels(
     data_dir=data_config.data_dir, protein_labels=data_config.labels,
 )
+if args.debug:
+    input_data = input_data[:200]  # Limit to 200 samples for testing
 train_input_data, _ = train_test_split(
     input_data, train_ratio=0.9, deterministic=True
 )
@@ -171,6 +169,7 @@ train_dloader = DataLoader(
     num_workers=3,
     pin_memory=True,
     drop_last=True,
+    collate_fn=collate_test_time_crops if train_aug_config.strategy == "overlap" else None,
 )
 val_dloader = DataLoader(
     val_dataset,
@@ -179,7 +178,7 @@ val_dloader = DataLoader(
     num_workers=3,
     pin_memory=True,
     drop_last=False,
-    collate_fn=collate_test_time_crops if val_aug_config.test_time_crop else None,
+    collate_fn=collate_test_time_crops if val_aug_config.strategy == "overlap" else None,
 )
 
 # --- Initialize Logger + Log configs ---
