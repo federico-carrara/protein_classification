@@ -1,5 +1,6 @@
 """Functions to get file paths and labels for the BioSR dataset."""
 import os
+import random
 from pathlib import Path
 from typing import Sequence, Union
 
@@ -35,4 +36,9 @@ def get_biosr_filepaths_and_labels(
             out_labels.append(curr_labels_dict[label])
     
     outputs = list(zip(out_fpaths, out_labels))
+    # deterministically shuffle
+    random.seed(777)
+    outputs = [
+        outputs[i] for i in random.sample(range(len(outputs)), len(outputs))
+    ]
     return outputs, curr_labels_dict
