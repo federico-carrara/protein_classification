@@ -14,7 +14,7 @@ from protein_classification.config import (
     DenseNetConfig, LossConfig, TrainingConfig
 )
 from protein_classification.data import InMemoryDataset, ZarrDataset
-from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_labels
+from protein_classification.data.biosr import get_biosr_filepaths_and_labels
 from protein_classification.data.preprocessing import ZarrPreprocessor
 from protein_classification.data.utils import train_test_split, collate_test_time_crops
 from protein_classification.model import BioStructClassifier
@@ -24,11 +24,11 @@ from protein_classification.utils.io import load_dataset_stats, get_log_dir, log
 parser = argparse.ArgumentParser(description="Train a protein classification model.")
 parser.add_argument("--log", action="store_true", help="Enable logging with Weights & Biases.")
 parser.add_argument("--in_memory", action="store_true", help="Load the dataset in memory, else use Zarr preprocessing.")
-parser.add_argument("--aug", type=str, default=None, choices=["geometric", "noise", "all"])
+parser.add_argument("--aug", type=str, default="all", choices=["geometric", "noise", "all"])
 parser.add_argument("--batch_size", type=int, default=32, help="Batch size for training.")
 parser.add_argument("--acc_batches", type=int, default=1, help="Number of batches to accumulate gradients over.")
-parser.add_argument("--img_size", type=int, default=2048, help="Size of the input images.")
-parser.add_argument("--crop_size", type=int, default=2048, help="Crop size for the input images.")
+parser.add_argument("--img_size", type=int, default=1004, help="Size of the input images.")
+parser.add_argument("--crop_size", type=int, default=1004, help="Crop size for the input images.")
 parser.add_argument("--debug", action="store_true", help="Enable debug mode for faster training with fewer samples.")
 args = parser.parse_args()
 
@@ -39,35 +39,34 @@ torch.set_float32_matmul_precision('medium')
 
 # --- Set Configurations ---
 dataset_stats = load_dataset_stats(
-    stats_path="data_stats_cellatlas.json", labels=["Mitochondria"]
+    stats_path="data_stats_biosr.json",
+    labels=["F-actin", "Microtubules", "CCPs", "ER"]
 )
 train_aug_config = DataAugmentationConfig(
     transform=args.aug,
     crop_size=args.crop_size,
     random_crop=True,
-    strategy="background",
-    metrics=["std"],
-    bg_threshold=3.0, # Default threshold for background crops
+    strategy=None
 )
 val_aug_config = train_aug_config.model_copy(update={})
 data_config = DataConfig(
-    data_dir="/group/jug/federico/data/CellAtlas",
-    labels=["Mitochondria"],
+    data_dir="/group/jug/federico/data/BioSR_v2",
+    labels=["F-actin", "Microtubules", "CCPs", "ER"],
     img_size=args.img_size,
     train_augmentation_config=train_aug_config,
     val_augmentation_config=val_aug_config,
-    bit_depth=8,
+    bit_depth=16,
     normalize="std",
     dataset_stats=(dataset_stats["mean"], dataset_stats["std"]),
 )
 model_config = DenseNetConfig(
     architecture="densenet121",
-    num_classes=4 + 1, # 4 classes + 1 for background
+    num_classes=4,
     num_init_features=64,
     dropout_block=True,
 )
 loss_config = LossConfig(loss_type="multiclass_focal_loss")
-exp_name = f"DenseNet121_CellAtlas_{model_config.num_classes}Cl_{data_config.labels[0]}" # TODO: make it more general
+exp_name = f"DenseNet121_BioSR_{model_config.num_classes}Cl_{len(data_config.labels)}FP" # TODO: make it more general
 if LOGGING:
     log_dir=get_log_dir(
         base_dir="/group/jug/federico/classification_training",
@@ -82,6 +81,7 @@ training_config = TrainingConfig(
     gradient_clip_val=1.0,
     gradient_clip_algorithm="norm",
     accumulate_grad_batches=args.acc_batches,
+    earlystop_patience=None
 )
 algo_config = AlgorithmConfig(
     mode="train",
@@ -92,7 +92,7 @@ algo_config = AlgorithmConfig(
 )
 
 # --- Data Setup ---
-input_data, curr_labels = get_cellatlas_filepaths_and_labels(
+input_data, curr_labels = get_biosr_filepaths_and_labels(
     data_dir=data_config.data_dir, protein_labels=data_config.labels,
 )
 if args.debug:
@@ -215,7 +215,7 @@ trainer = Trainer(
     gradient_clip_algorithm=training_config.gradient_clip_algorithm,
     gradient_clip_val=training_config.gradient_clip_val,
     accumulate_grad_batches=training_config.accumulate_grad_batches,
-    log_every_n_steps=10,
+    log_every_n_steps=1,
 )
 trainer.fit(model, train_dloader, val_dloader)
 wandb.finish()

@@ -32,7 +32,7 @@ class TrainingConfig(BaseModel):
     batch_size: int = Field(default=32, gt=0)
     """Batch size, greater than 0."""
     
-    earlystop_patience: int = Field(default=20, ge=1)
+    earlystop_patience: Optional[int] = None
     """Patience for the early stopping callback."""
     
     precision: Literal["64", "32", "16-mixed", "bf16-mixed"] = Field(default="32")
@@ -52,6 +52,3 @@ class TrainingConfig(BaseModel):
     
     gradient_clip_val: Optional[Union[int, float]] = None
     """The value to which to clip the gradient"""
-    
-    earlystop_patience: int = Field(default=20, ge=1)
-    """Patience for the early stopping callback."""
