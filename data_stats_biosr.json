@@ -1,0 +1,11 @@
+{
+    "F-actin+Microtubules+CCPs+ER": {
+        "timestamp": "18/07/25_15:51",
+        "num_samples": 279,
+        "num_classes": 4,
+        "mean": 6704.122327935398,
+        "std": 7499.036109493185,
+        "min": 0.0,
+        "max": 49393.0
+    }
+}
