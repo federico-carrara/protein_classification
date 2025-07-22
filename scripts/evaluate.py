@@ -43,8 +43,8 @@ data_config.test_augmentation_config = DataAugmentationConfig(
     crop_size=data_config.train_augmentation_config.crop_size,
     random_crop=True,
     strategy="overlap",
-    metrics=["std"],
-    bg_threshold=3.0, # Default threshold for background crops
+    # metrics=["std"],
+    # bg_threshold=3.0, # Default threshold for background crops
 )
 
 # --- Data Setup ---
@@ -174,19 +174,18 @@ print("Precision:", metrics["standard"]["precision"])
 print("Recall:", metrics["standard"]["recall"])
 print("Confusion Matrix:\n", metrics["standard"]["confusion_matrix"])
 
-if args.tta:
-    print("\n------------------------------------------")
-    print("Test Time Augmentation (TTA) mean-probs:")
-    print("Accuracy:", metrics["meanprobs"]["accuracy"])
-    print("F1 (macro):", metrics["meanprobs"]["f1"])
-    print("Precision:", metrics["meanprobs"]["precision"])
-    print("Recall:", metrics["meanprobs"]["recall"])
-    print("Confusion Matrix:\n", metrics["meanprobs"]["confusion_matrix"])
+print("\n------------------------------------------")
+print("Test Time Augmentation (TTA) mean-probs:")
+print("Accuracy:", metrics["meanprobs"]["accuracy"])
+print("F1 (macro):", metrics["meanprobs"]["f1"])
+print("Precision:", metrics["meanprobs"]["precision"])
+print("Recall:", metrics["meanprobs"]["recall"])
+print("Confusion Matrix:\n", metrics["meanprobs"]["confusion_matrix"])
 
-    print("\n------------------------------------------")
-    print("Test Time Augmentation (TTA) majority voting:")
-    print("Accuracy:", metrics["majority"]["accuracy"])
-    print("F1 (macro):", metrics["majority"]["f1"])
-    print("Precision:", metrics["majority"]["precision"])
-    print("Recall:", metrics["majority"]["recall"])
-    print("Confusion Matrix:\n", metrics["majority"]["confusion_matrix"])
+print("\n------------------------------------------")
+print("Test Time Augmentation (TTA) majority voting:")
+print("Accuracy:", metrics["majority"]["accuracy"])
+print("F1 (macro):", metrics["majority"]["f1"])
+print("Precision:", metrics["majority"]["precision"])
+print("Recall:", metrics["majority"]["recall"])
+print("Confusion Matrix:\n", metrics["majority"]["confusion_matrix"])

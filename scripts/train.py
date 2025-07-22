@@ -45,9 +45,10 @@ train_aug_config = DataAugmentationConfig(
     transform=args.aug,
     crop_size=args.crop_size,
     random_crop=True,
-    strategy="background",
-    metrics=["std"],
-    bg_threshold=3.0, # Default threshold for background crops
+    strategy=None
+    # strategy="background",
+    # metrics=["std"],
+    # bg_threshold=3.0, # Default threshold for background crops
 )
 val_aug_config = train_aug_config.model_copy(update={})
 data_config = DataConfig(
@@ -62,9 +63,10 @@ data_config = DataConfig(
 )
 model_config = DenseNetConfig(
     architecture="densenet121",
-    num_classes=4 + 1, # 4 classes + 1 for background
+    num_classes=4, # 4 classes + 1 for background
     num_init_features=64,
-    dropout_block=True,
+    dropout_block=False,
+    dropout_p=0.1
 )
 loss_config = LossConfig(loss_type="multiclass_focal_loss")
 exp_name = f"DenseNet121_CellAtlas_{model_config.num_classes}Cl_{data_config.labels[0]}" # TODO: make it more general

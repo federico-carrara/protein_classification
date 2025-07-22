@@ -3,8 +3,8 @@ import os
 from typing import Any
 
 
-exp_ids = tuple(range(1, 11))
-ckpt_dir = "/group/jug/federico/classification_training/2507/DenseNet121_5Cl_Mitochondria/"
+exp_ids = tuple(range(1, 18))
+ckpt_dir = "/group/jug/federico/classification_training/2507/DenseNet121_CellAtlas_4Cl_Mitochondria/"
 params = ["img_size", "crop_size", "transform", "batch_size", "accumulate_grad_batches"]
 configs = ["data_config", "data_config", "data_config", "algorithm_config", "algorithm_config"]
 
