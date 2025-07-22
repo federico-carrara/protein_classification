@@ -13,10 +13,10 @@ class DenseLayer(nn.Module):
             nn.BatchNorm2d(num_input_features),
             nn.ReLU(inplace=True),
             nn.Conv2d(
-                in_channels=num_input_features, 
+                in_channels=num_input_features,
                 out_channels=bn_size * growth_rate,
-                kernel_size=1, 
-                stride=1, 
+                kernel_size=1,
+                stride=1,
                 bias=False
             ),
             nn.BatchNorm2d(bn_size * growth_rate),
@@ -159,11 +159,11 @@ class DenseNet(nn.Module):
             self.droput_block = nn.Sequential(
                 nn.Flatten(),
                 nn.BatchNorm1d(num_features * 2),
-                nn.Dropout1d(p=0.5),
+                nn.Dropout1d(p=dropout_p),
                 nn.Linear(num_features * 2, num_features),
                 nn.ReLU(inplace=True),
                 nn.BatchNorm1d(num_features),
-                nn.Dropout1d(p=0.5),
+                nn.Dropout1d(p=dropout_p),
             )
         else:
             self.droput_block = None
