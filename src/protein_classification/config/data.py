@@ -19,12 +19,13 @@ class DataAugmentationConfig(BaseModel):
         validate_default=True,
     )
     
-    transform: Optional[Literal['geometric', 'noise', 'all']] = None
+    transform: Optional[Literal['geometric', 'intensity', 'noise', 'all']] = None
     """The name of the augmentation/transform used at training time.
     Currently, the available ones are:
     - "geometric": applies only random geometric augmentations.
+    - "intensity": applies only mild intensity scaling.
     - "noise": applies only random noise augmentations.
-    - "all": applies all augmentations.
+    - "all": applies geometric, intensity, and noise augmentations.
     By default `None`, which means no transformation is applied."""
     
     crop_size: Optional[int] = None

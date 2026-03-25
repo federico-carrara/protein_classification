@@ -8,7 +8,11 @@ from torch import Tensor
 from torch.utils.data.dataset import Dataset
 
 from protein_classification.config.data import DataAugmentationConfig
-from protein_classification.data.augmentations import transforms_factory
+from protein_classification.data.augmentations import (
+    geometric_augmentation,
+    intensity_augmentation,
+    noise_augmentation,
+)
 from protein_classification.data.utils import (
     crop_img,
     get_overlapping_crops,
@@ -56,10 +60,6 @@ class BaseTiffDataset(Dataset):
         self.return_label = return_label
         self.augmentation_config = augmentation_config
         self.num_crops_per_image = num_crops_per_image
-
-        self.transform = transforms_factory(self.augmentation_config.transform)
-        if self.split == "test":
-            self.transform = None
 
     def _transform_label(self, label: int) -> int:
         """Map the source label to the task-specific label."""
@@ -139,8 +139,18 @@ class BaseTiffDataset(Dataset):
         """Apply transforms and normalization independently to each crop."""
         processed_crops: list[Tensor] = []
         for crop in crops:
-            if self.transform is not None:
-                crop = self.transform(crop, bit_depth=self.bit_depth)
+            transform_name = None if self.split == "test" else self.augmentation_config.transform
+
+            if transform_name in {"geometric", "all"}:
+                crop = geometric_augmentation(crop)
+
+            if transform_name in {"intensity", "noise", "all"}:
+                crop = normalize_img(crop, "minmax", "image")
+                if transform_name in {"intensity", "all"}:
+                    crop = intensity_augmentation(crop)
+                if transform_name in {"noise", "all"}:
+                    crop = noise_augmentation(crop)
+
             if self.normalize is not None:
                 crop = normalize_img(
                     crop,

@@ -4,6 +4,8 @@ from typing import Callable, Optional, Union
 import torch
 from torch import Tensor
 
+from protein_classification.data.utils import normalize_img
+
 
 def transforms_factory(
     name: Optional[str] = None
@@ -24,27 +26,13 @@ def transforms_factory(
 
 
 def train_augmentation(
-    image: Tensor, mask: Optional[Tensor] = None, bit_depth: int = 8
+    image: Tensor, mask: Optional[Tensor] = None
 ) -> Union[Tensor, tuple[Tensor, Tensor]]:
-    """Apply a random augmentation to image (and optional mask).
-
-    Parameters
-    ----------
-    image : Tensor
-        Input image tensor of shape (C, H, W).
-    bit_depth : int
-        Bit depth of the image, used to scale noise.
-    mask : Optional[Tensor]
-        Optional mask tensor of shape (H, W) or (1, H, W).
-
-    Returns
-    -------
-    Union[Tensor, Tuple[Tensor, Tensor]]
-        Augmented image, and mask if provided.
-    """
+    """Apply geometric plus photometric augmentation in normalized space."""
     image = geometric_augmentation(image, mask)
-    image = intensity_augmentation(image, mask, bit_depth)
-    image = noise_augmentation(image, mask, bit_depth)
+    image = normalize_img(image, "minmax", "image")
+    image = intensity_augmentation(image, mask)
+    image = noise_augmentation(image, mask)
     return (image, mask) if mask is not None else image
 
 
@@ -163,21 +151,20 @@ def augment_rotate(
 
 
 def noise_augmentation(
-    image: Tensor, mask: Optional[Tensor] = None, bit_depth: int = 8
+    image: Tensor, mask: Optional[Tensor] = None
 ) -> Union[Tensor, tuple[Tensor, Tensor]]:
-    """Add mild random noise to the image."""
-    image = add_poisson_noise(image, bit_depth, scale_range=(20.0, 80.0))
-    image = add_gaussian_noise(image, bit_depth, std_range=(1e-3, 2e-2))
+    """Add mild noise in normalized [0, 1] space."""
+    image = add_gaussian_noise(image, std_range=(5e-3, 2e-2))
     if mask is not None:
         return image, mask
     return image
 
 
 def intensity_augmentation(
-    image: Tensor, mask: Optional[Tensor] = None, bit_depth: int = 8
+    image: Tensor, mask: Optional[Tensor] = None
 ) -> Union[Tensor, tuple[Tensor, Tensor]]:
-    """Apply mild intensity scaling to the image."""
-    image = scale_intensity(image, bit_depth=bit_depth)
+    """Apply mild intensity scaling in normalized [0, 1] space."""
+    image = scale_intensity(image)
     if mask is not None:
         return image, mask
     return image
@@ -211,17 +198,14 @@ def add_background(
 
 def scale_intensity(
     image: Tensor,
-    bit_depth: int = 8,
     scale_range: tuple[float, float] = (0.9, 1.1),
 ) -> Tensor:
-    """Apply mild multiplicative intensity scaling."""
-    roof = 2 ** bit_depth - 1
+    """Apply mild multiplicative intensity scaling in [0, 1]."""
     scale = random.uniform(*scale_range)
-    return torch.clamp(image * scale, 0.0, roof)
+    return torch.clamp(image * scale, 0.0, 1.0)
 
 def add_poisson_noise(
     image: Tensor,
-    bit_depth: int = 8,
     scale_range: tuple[float, float] = (0.0, 100.0)
 ) -> Tensor:
     """Add Poisson noise to simulate photon noise in microscopy.
@@ -242,35 +226,17 @@ def add_poisson_noise(
     Tensor
         Image with Poisson noise applied.
     """
-    roof = 2 ** bit_depth - 1
     # TODO: sample from a distribution that gives more prob to lower values?
     scale = random.uniform(*scale_range)
     image_scaled = image * scale
     noisy = torch.poisson(image_scaled)
-    return torch.clamp(noisy / scale, 0.0, roof)
+    return noisy / scale
 
 def add_gaussian_noise(
     image: Tensor,
-    bit_depth: int = 8,
     std_range: tuple[float, float] = (1e-3, 1e-1)
 ) -> Tensor:
-    """Add Gaussian noise to simulate read noise.
-
-    Parameters
-    ----------
-    image : Tensor
-        Input image tensor, unnormalized.
-    bit_depth : int
-        Bit depth of the image, used to scale the noise.
-    std_range : Tuple[float, float]
-        Range of standard deviations for Gaussian noise.
-
-    Returns
-    -------
-    Tensor
-        Image with Gaussian noise applied.
-    """
-    roof = 2 ** bit_depth - 1
-    std = random.uniform(*std_range) * roof
+    """Add Gaussian noise in normalized [0, 1] space."""
+    std = random.uniform(*std_range)
     noise = torch.randn_like(image) * std
-    return torch.clamp(image + noise, 0.0, roof)
+    return image + noise
