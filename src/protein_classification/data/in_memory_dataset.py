@@ -33,6 +33,7 @@ class _BaseMemoryDataset(Dataset):
         imreader: Callable[[PathLike], Union[NDArray, Tensor]] = tiff.imread,
         bit_depth: Optional[int] = None,
         normalize: Optional[Literal['minmax', 'std']] = None,
+        normalization_scope: Literal['dataset', 'image'] = 'dataset',
         dataset_stats: Optional[tuple[float, float]] = None,
         return_label: bool = True,
     ) -> None:
@@ -42,6 +43,7 @@ class _BaseMemoryDataset(Dataset):
         self.img_size = img_size
         self.bit_depth = bit_depth
         self.normalize = normalize
+        self.normalization_scope = normalization_scope
         self.dataset_stats = dataset_stats
         self.imreader = imreader
         self.return_label = return_label
@@ -208,7 +210,12 @@ class _BaseMemoryDataset(Dataset):
 
         # normalize image
         if self.normalize is not None:
-            image = normalize_img(image, self.normalize, self.dataset_stats)
+            image = normalize_img(
+                image,
+                self.normalize,
+                self.dataset_stats,
+                self.normalization_scope,
+            )
 
         if self.return_label:
             return image, label
@@ -267,6 +274,7 @@ class BinaryDataset(_BaseMemoryDataset):
         imreader: Callable[[PathLike], Union[NDArray, Tensor]] = tiff.imread,
         bit_depth: Optional[int] = None,
         normalize: Optional[Literal['minmax', 'std']] = None,
+        normalization_scope: Literal['dataset', 'image'] = 'dataset',
         dataset_stats: Optional[tuple[float, float]] = None,
         return_label: bool = True,
     ) -> None:
@@ -279,6 +287,7 @@ class BinaryDataset(_BaseMemoryDataset):
             imreader=imreader,
             bit_depth=bit_depth,
             normalize=normalize,
+            normalization_scope=normalization_scope,
             dataset_stats=dataset_stats,
             return_label=return_label,
         )

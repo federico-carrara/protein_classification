@@ -67,6 +67,7 @@ class LambdaSplitPredsDataset(Dataset):
         augmentation_config: DataAugmentationConfig,
         bit_depth: Optional[int] = None,
         normalize: Optional[Literal['minmax', 'std']] = None,
+        normalization_scope: Literal['dataset', 'image'] = 'dataset',
         dataset_stats: Optional[tuple[float, float]] = None,
         return_label: bool = True,
     ) -> None:
@@ -78,6 +79,7 @@ class LambdaSplitPredsDataset(Dataset):
         self.img_size = img_size
         self.bit_depth = bit_depth
         self.normalize = normalize
+        self.normalization_scope = normalization_scope
         self.return_label = return_label
         self.augmentation_config = augmentation_config
         
@@ -94,7 +96,9 @@ class LambdaSplitPredsDataset(Dataset):
         self.images, self.labels = self.read_data()
         
         # Get dataset statistics for normalization
-        if dataset_stats is None:
+        if self.normalize is None or self.normalization_scope == "image":
+            self.dataset_stats = None
+        elif dataset_stats is None:
             self.dataset_stats = self._compute_img_stats()
         else:
             self.dataset_stats = dataset_stats
@@ -149,7 +153,12 @@ class LambdaSplitPredsDataset(Dataset):
             
         # normalize image
         if self.normalize is not None:
-            image = normalize_img(image, self.normalize, self.dataset_stats)
+            image = normalize_img(
+                image,
+                self.normalize,
+                self.dataset_stats,
+                self.normalization_scope,
+            )
    
         if self.return_label:
             return image, label

@@ -107,12 +107,16 @@ class DataConfig(BaseModel):
     """The normalization method to apply to the images.
     - 'minmax': scales images to [0, 1] based on the min and max values.
     - 'std': standardizes images to have zero mean and unit variance.
-    By default `None`, which means no normalization is applied. If specified, the
-    `dataset_stats` must also be provided."""
+    By default `None`, which means no normalization is applied."""
+
+    normalization_scope: Literal["dataset", "image"] = "dataset"
+    """Scope used to compute normalization statistics.
+    - 'dataset': use precomputed dataset-level statistics from `dataset_stats`.
+    - 'image': compute statistics independently for each image/patch."""
     
     dataset_stats: Optional[tuple[float, float]] = None
     """Pre-computed dataset statistics (mean, std) or (min, max) for normalization.
-    If `normalize` is specified, this must also be provided."""
+    Required when `normalize` is specified and `normalization_scope='dataset'`."""
     
     train_augmentation_config: Optional[DataAugmentationConfig] = None
     """Configuration for data augmentation, including cropping and transformations."""
@@ -122,3 +126,22 @@ class DataConfig(BaseModel):
 
     test_augmentation_config: Optional[DataAugmentationConfig] = None
     """Configuration for test data augmentation. If `None`, no augmentation is applied."""
+
+    @model_validator(mode='after')
+    def validate_normalization(self: Self) -> Self:
+        """Validate normalization settings."""
+        if self.normalize is None:
+            return self
+
+        if self.normalization_scope == "dataset" and self.dataset_stats is None:
+            raise ValueError(
+                "`dataset_stats` must be provided when using dataset normalization."
+            )
+
+        if self.normalization_scope == "image" and self.dataset_stats is not None:
+            print(
+                "Warning: `dataset_stats` were provided but will be ignored because "
+                "`normalization_scope='image'`."
+            )
+
+        return self

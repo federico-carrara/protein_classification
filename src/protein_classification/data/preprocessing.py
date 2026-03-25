@@ -47,6 +47,7 @@ class ZarrPreprocessor:
         img_size: int = 768,
         imreader: Callable = tiff.imread,
         normalize: Optional[Literal['minmax', 'std']] = None,
+        normalization_scope: Literal['dataset', 'image'] = 'dataset',
         dataset_stats: Optional[tuple[float, float]] = None,
         chunk_size: int = 1,
     ) -> None:
@@ -56,6 +57,7 @@ class ZarrPreprocessor:
         self.output_path = Path(output_path)
         self.img_size = img_size
         self.normalize = normalize
+        self.normalization_scope = normalization_scope
         self.dataset_stats = dataset_stats
         self.imreader = imreader
         self.chunk_size = chunk_size
@@ -67,7 +69,7 @@ class ZarrPreprocessor:
         # normalize the image using the specified method
         if self.normalize is not None:
             img = normalize_img(
-                img, self.normalize, self.dataset_stats
+                img, self.normalize, self.dataset_stats, self.normalization_scope
             )
         
         # resize to img_size if necessary

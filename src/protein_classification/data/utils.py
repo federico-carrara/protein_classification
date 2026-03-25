@@ -22,34 +22,63 @@ def normalize_range(
 
 
 def normalize_img(
-    img: NDArray, method: Literal["minmax", "std"], dataset_stats: tuple[float, float]
-) -> NDArray:
-    """Normalize an image using the specified method."""
-    assert dataset_stats is not None, (
-        "Dataset statistics must be provided for normalization."
-    )
+    img: NDArray | Tensor,
+    method: Literal["minmax", "std"],
+    scope: Literal["dataset", "image"],
+    dataset_stats: Optional[tuple[float, float]] = None,
+) -> NDArray | Tensor:
+    """Normalize an image using dataset-level or per-image statistics."""
+    stats = _get_normalization_stats(img, method, dataset_stats, scope)
     if method == 'minmax':
-        min_val, max_val = dataset_stats
+        min_val, max_val = stats
         return _minmax_normalize(img, min_val, max_val)
     elif method == 'std':
-        mean, std = dataset_stats
+        mean, std = stats
         return _std_normalize(img, mean, std)
     else:
         raise ValueError(f"Unavailable normalization method: {method}")
+
+
+def _get_normalization_stats(
+    img: NDArray | Tensor,
+    method: Literal["minmax", "std"],
+    scope: Literal["dataset", "image"],
+    dataset_stats: Optional[tuple[float, float]],
+) -> tuple[float, float]:
+    """Get the statistics used for normalization."""
+    if scope == "dataset":
+        if dataset_stats is None:
+            raise ValueError(
+                "Dataset statistics must be provided for dataset normalization."
+            )
+        return dataset_stats
+
+    if scope != "image":
+        raise ValueError(f"Unknown normalization scope: {scope}")
+
+    if isinstance(img, torch.Tensor):
+        if method == "minmax":
+            return img.min().item(), img.max().item()
+        return img.mean().item(), img.std().item()
+
+    if method == "minmax":
+        return float(np.min(img)), float(np.max(img))
+    return float(np.mean(img)), float(np.std(img))
 
 
 def _minmax_normalize(
     img: NDArray, min_val: float, max_val: float
 ) -> NDArray:
     """Apply min-max normalization to an image using dataset statistics."""
-    return (img - min_val) / (max_val - min_val)
+    denom = max(max_val - min_val, 1e-8)
+    return (img - min_val) / denom
 
 
 def _std_normalize(
     img: NDArray, mean: float, std: float
 ) -> NDArray:
     """Apply standard normalization to an image using dataset statistics."""
-    return (img - mean) / std
+    return (img - mean) / max(std, 1e-8)
 
 
 def crop_img(img: NDArray | Tensor, crop_size: int, random_crop: bool) -> NDArray | Tensor:
