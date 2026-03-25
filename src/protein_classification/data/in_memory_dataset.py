@@ -18,36 +18,11 @@ from protein_classification.data.utils import (
 PathLike = Union[Path, str]
 
 
-# TODO: deal with stratified/balanced sampling of the dataset
-class InMemoryDataset(Dataset):
-    """Dataset for protein classification model where inputs are loaded from memory.
-        
-    Parameters
-    ----------
-    inputs : Sequence[tuple[PathLike, int]]
-        Sequence of tuples of image filename and label index (optional for test set)
-        for each sample.
-    split : Literal['train', 'test']
-        The split of the dataset, either 'train' or 'test'.
-    img_size : int
-        The size of the input images. If the input images are not of this size, they
-        will be resized to this size.
-    augmentation_config : DataAugmentationConfig
-        Configuration for data augmentation. If `None`, no augmentation is applied.
-    bit_depth : Optional[int], optional
-        The bit depth of the input images. If specified, the images will be normalized
-        to the range [0, 1] based on the bit depth. If `None`, no range normalization
-        is applied. By default `None`.
-    normalize : Literal['range', 'minmax', 'std'], optional
-        The normalization method to apply to the images.
-        - 'minmax': scales images to [0, 1] based on the min and max values.
-        - 'std': standardizes images to have zero mean and unit variance.
-        By default 'range'.
-    dataset_stats : Optional[tuple[float, float]], optional
-        Pre-computed dataset statistics (mean, std) or (min, max) for normalization.
-    return_label : bool, optional
-        Whether to return the label along with the image. If `False`, only the image is
-        returned. By default `True`.
+class _BaseMemoryDataset(Dataset):
+    """Base dataset for in-memory image classification.
+
+    Subclasses can customize the label mapping while reusing the same image loading,
+    cropping, augmentation, and normalization pipeline.
     """
     def __init__(
         self,
@@ -61,9 +36,8 @@ class InMemoryDataset(Dataset):
         dataset_stats: Optional[tuple[float, float]] = None,
         return_label: bool = True,
     ) -> None:
-        """Constructor."""
         super().__init__()
-        self.inputs= inputs
+        self.inputs = inputs
         self.split = split
         self.img_size = img_size
         self.bit_depth = bit_depth
@@ -71,55 +45,60 @@ class InMemoryDataset(Dataset):
         self.dataset_stats = dataset_stats
         self.imreader = imreader
         self.return_label = return_label
-        self.augmentation_config = augmentation_config 
-        self.current_epoch = 0 # used for curriculum learning
-        
+        self.augmentation_config = augmentation_config
+        self.current_epoch = 0  # used for curriculum learning
+
         # Get transformation function for augmentation
         self.transform = transforms_factory(self.augmentation_config.transform)
-        
+
         # FIXME: checks these
         # Force test_time_crop to be False for train split
         if self.split == 'train':
             self.test_time_crop = False
-        
+
         # Force transform to be None for test split
         if self.split == 'test':
             self.transform = None
             self.random_crop = False
-        
+
         # Read, preprocess and store the images and labels in memory
-        self.images, self.labels = self.read_data()
+        self.images, self.source_labels = self.read_data()
+        self.labels = [self._transform_label(label) for label in self.source_labels]
         self.unique_labels = set(self.labels)
         self.bg_label = sorted(self.unique_labels)[-1] + 1
-        
+
         # Get the difficulty distribution of the dataset for curriculum learning
         if self.augmentation_config.strategy in ["curriculum", "rm_background"]:
             self.difficulty_distribution = self._get_difficulty_score_distribution()
         else:
             self.difficulty_distribution = None
-            
+
+    def _transform_label(self, label: int) -> int:
+        """Map the source label to the task-specific label."""
+        return label
+
     def set_epoch(self, epoch: int) -> None:
         """Set the current epoch for curriculum learning."""
         self.current_epoch = epoch
-    
+
     def read_data(self) -> tuple[list[torch.Tensor], list[int]]:
         """Read data and preprocess them."""
         images: list[torch.Tensor] = []
         labels: list[int] = []
         for fpath, label in tqdm(self.inputs, desc="Reading inputs"):
             img: NDArray = self.imreader(fpath)
-            
+
             # resize to img_size if necessary
             if self.img_size is not None and img.shape != (self.img_size, self.img_size):
                 img = resize_img(img, self.img_size)
-            
+
             images.append(
-                torch.tensor(img, dtype=torch.float32)[None, ...] # add channel dim
+                torch.tensor(img, dtype=torch.float32)[None, ...]  # add channel dim
             )
             labels.append(int(label))
-            
+
         return images, labels
-    
+
     def _get_difficulty_score_distribution(
         self, k: int = 10, metrics: list[Literal["std"]] = ["std"], bins: int = 100
     ) -> dict[int, torch.Tensor]:
@@ -181,7 +160,7 @@ class InMemoryDataset(Dataset):
         """Apply cropping to an image based on the provided configuration."""
         if self.augmentation_config.crop_size is None:
             return image, label
-    
+
         if self.augmentation_config.strategy == "background":
             return identify_background_crops(
                 image,
@@ -226,11 +205,11 @@ class InMemoryDataset(Dataset):
         # apply data augmentation
         if self.transform is not None:
             image = self.transform(image, bit_depth=self.bit_depth)
-            
+
         # normalize image
         if self.normalize is not None:
             image = normalize_img(image, self.normalize, self.dataset_stats)
-   
+
         if self.return_label:
             return image, label
         else:
@@ -238,3 +217,74 @@ class InMemoryDataset(Dataset):
 
     def __len__(self):
         return len(self.inputs)
+
+
+# TODO: deal with stratified/balanced sampling of the dataset
+class MultiClassDataset(_BaseMemoryDataset):
+    """Dataset for multiclass classification where inputs are loaded from memory.
+        
+    Parameters
+    ----------
+    inputs : Sequence[tuple[PathLike, int]]
+        Sequence of tuples of image filename and label index (optional for test set)
+        for each sample.
+    split : Literal['train', 'test']
+        The split of the dataset, either 'train' or 'test'.
+    img_size : int
+        The size of the input images. If the input images are not of this size, they
+        will be resized to this size.
+    augmentation_config : DataAugmentationConfig
+        Configuration for data augmentation. If `None`, no augmentation is applied.
+    bit_depth : Optional[int], optional
+        The bit depth of the input images. If specified, the images will be normalized
+        to the range [0, 1] based on the bit depth. If `None`, no range normalization
+        is applied. By default `None`.
+    normalize : Literal['range', 'minmax', 'std'], optional
+        The normalization method to apply to the images.
+        - 'minmax': scales images to [0, 1] based on the min and max values.
+        - 'std': standardizes images to have zero mean and unit variance.
+        By default 'range'.
+    dataset_stats : Optional[tuple[float, float]], optional
+        Pre-computed dataset statistics (mean, std) or (min, max) for normalization.
+    return_label : bool, optional
+        Whether to return the label along with the image. If `False`, only the image is
+        returned. By default `True`.
+    """
+
+class BinaryDataset(_BaseMemoryDataset):
+    """Dataset for one-vs-rest binary classification.
+
+    The source labels are preserved internally in ``source_labels`` while the labels
+    returned by the dataset are mapped to binary targets relative to ``target_label``.
+    """
+    def __init__(
+        self,
+        inputs: Sequence[tuple[PathLike, int]],
+        split: Literal['train', 'test'],
+        img_size: int,
+        augmentation_config: DataAugmentationConfig,
+        target_label: int,
+        imreader: Callable[[PathLike], Union[NDArray, Tensor]] = tiff.imread,
+        bit_depth: Optional[int] = None,
+        normalize: Optional[Literal['minmax', 'std']] = None,
+        dataset_stats: Optional[tuple[float, float]] = None,
+        return_label: bool = True,
+    ) -> None:
+        self.target_label = int(target_label)
+        super().__init__(
+            inputs=inputs,
+            split=split,
+            img_size=img_size,
+            augmentation_config=augmentation_config,
+            imreader=imreader,
+            bit_depth=bit_depth,
+            normalize=normalize,
+            dataset_stats=dataset_stats,
+            return_label=return_label,
+        )
+
+    def _transform_label_to_binary(self, label: int) -> int:
+        """Map the source multiclass label to a binary label."""
+        if label == self.target_label:
+            return 1
+        return 0
