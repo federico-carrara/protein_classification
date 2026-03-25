@@ -156,8 +156,8 @@ class LambdaSplitPredsDataset(Dataset):
             image = normalize_img(
                 image,
                 self.normalize,
-                self.dataset_stats,
                 self.normalization_scope,
+                self.dataset_stats,
             )
    
         if self.return_label:

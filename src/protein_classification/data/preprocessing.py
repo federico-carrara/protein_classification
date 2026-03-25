@@ -69,7 +69,7 @@ class ZarrPreprocessor:
         # normalize the image using the specified method
         if self.normalize is not None:
             img = normalize_img(
-                img, self.normalize, self.dataset_stats, self.normalization_scope
+                img, self.normalize, self.normalization_scope, self.dataset_stats
             )
         
         # resize to img_size if necessary

@@ -4,42 +4,48 @@ from typing import Callable, Literal, Optional, Sequence, Union
 import tifffile as tiff
 import torch
 from numpy.typing import NDArray
-from tqdm import tqdm
-from torch.utils.data.dataset import Dataset
 from torch import Tensor
+from torch.utils.data.dataset import Dataset
 
 from protein_classification.config.data import DataAugmentationConfig
 from protein_classification.data.augmentations import transforms_factory
 from protein_classification.data.utils import (
-    compute_difficulty_score, get_difficulty_score_distribution,
-    crop_img, normalize_img, resize_img,
-    get_curriculum_learning_crops, get_overlapping_crops, identify_background_crops
+    crop_img,
+    get_overlapping_crops,
+    identify_background_crops,
+    normalize_img,
+    resize_img,
 )
 
 PathLike = Union[Path, str]
 
 
-class _BaseMemoryDataset(Dataset):
-    """Base dataset for in-memory image classification.
+class BaseTiffDataset(Dataset):
+    """Lazy TIFF-backed dataset with multi-crop sampling.
 
-    Subclasses can customize the label mapping while reusing the same image loading,
-    cropping, augmentation, and normalization pipeline.
+    Each dataset item corresponds to one source image. The image is loaded on demand,
+    optionally resized, and used to extract a stack of crops.
     """
+
     def __init__(
         self,
         inputs: Sequence[tuple[PathLike, int]],
-        split: Literal['train', 'test'],
+        split: Literal["train", "test"],
         img_size: int,
         augmentation_config: DataAugmentationConfig,
+        num_crops_per_image: int,
         imreader: Callable[[PathLike], Union[NDArray, Tensor]] = tiff.imread,
         bit_depth: Optional[int] = None,
-        normalize: Optional[Literal['minmax', 'std']] = None,
-        normalization_scope: Literal['dataset', 'image'] = 'dataset',
+        normalize: Optional[Literal["minmax", "std"]] = None,
+        normalization_scope: Literal["dataset", "image"] = "dataset",
         dataset_stats: Optional[tuple[float, float]] = None,
         return_label: bool = True,
     ) -> None:
         super().__init__()
-        self.inputs = inputs
+        if num_crops_per_image < 1:
+            raise ValueError("`num_crops_per_image` must be >= 1.")
+
+        self.inputs = list(inputs)
         self.split = split
         self.img_size = img_size
         self.bit_depth = bit_depth
@@ -49,176 +55,137 @@ class _BaseMemoryDataset(Dataset):
         self.imreader = imreader
         self.return_label = return_label
         self.augmentation_config = augmentation_config
-        self.current_epoch = 0  # used for curriculum learning
+        self.num_crops_per_image = num_crops_per_image
 
-        # Get transformation function for augmentation
         self.transform = transforms_factory(self.augmentation_config.transform)
-
-        # FIXME: checks these
-        # Force test_time_crop to be False for train split
-        if self.split == 'train':
-            self.test_time_crop = False
-
-        # Force transform to be None for test split
-        if self.split == 'test':
+        if self.split == "test":
             self.transform = None
-            self.random_crop = False
-
-        # Read, preprocess and store the images and labels in memory
-        self.images, self.source_labels = self.read_data()
-        self.labels = [self._transform_label(label) for label in self.source_labels]
-        self.unique_labels = set(self.labels)
-        self.bg_label = sorted(self.unique_labels)[-1] + 1
-
-        # Get the difficulty distribution of the dataset for curriculum learning
-        if self.augmentation_config.strategy in ["curriculum", "rm_background"]:
-            self.difficulty_distribution = self._get_difficulty_score_distribution()
-        else:
-            self.difficulty_distribution = None
 
     def _transform_label(self, label: int) -> int:
         """Map the source label to the task-specific label."""
-        return label
+        return int(label)
 
-    def set_epoch(self, epoch: int) -> None:
-        """Set the current epoch for curriculum learning."""
-        self.current_epoch = epoch
-
-    def read_data(self) -> tuple[list[torch.Tensor], list[int]]:
-        """Read data and preprocess them."""
-        images: list[torch.Tensor] = []
-        labels: list[int] = []
-        for fpath, label in tqdm(self.inputs, desc="Reading inputs"):
-            img: NDArray = self.imreader(fpath)
-
-            # resize to img_size if necessary
-            if self.img_size is not None and img.shape != (self.img_size, self.img_size):
-                img = resize_img(img, self.img_size)
-
-            images.append(
-                torch.tensor(img, dtype=torch.float32)[None, ...]  # add channel dim
-            )
-            labels.append(int(label))
-
-        return images, labels
-
-    def _crop(self, image: Tensor, label: int) -> tuple[Tensor, int]:
-        """Apply cropping to an image based on the provided configuration."""
-        if self.augmentation_config.crop_size is None:
-            return image, label
-
-        if self.augmentation_config.strategy == "background":
-            return identify_background_crops(
-                image,
-                label,
-                crop_size=self.augmentation_config.crop_size,
-                metrics=self.augmentation_config.metrics,
-                threshold=self.augmentation_config.bg_threshold,
-                difficulty_distribution=self.difficulty_distribution,
-                bg_label=self.bg_label
-            )
-        elif self.augmentation_config.strategy == "curriculum":
-            return get_curriculum_learning_crops(
-                image,
-                crop_size=self.augmentation_config.crop_size,
-                difficulty_distrib=self.difficulty_distribution,
-                metrics=self.augmentation_config.metrics,
-                epoch=self.current_epoch,
-                total_epochs=self.augmentation_config.total_epochs,
-                beta_max_alpha=self.augmentation_config.beta_max_alpha,
-                sampling_patience=self.augmentation_config.sampling_patience
-            ), label
-        elif self.augmentation_config.strategy == "overlap":
-            return get_overlapping_crops(
-                image,
-                self.augmentation_config.crop_size,
-                self.augmentation_config.crop_overlap
-            ), label
+    def _load_image(self, idx: int) -> Tensor:
+        """Load one TIFF image lazily and return it as ``(C, H, W)`` float tensor."""
+        fpath, _ = self.inputs[idx]
+        image = self.imreader(fpath)
+        if isinstance(image, torch.Tensor):
+            image_tensor = image.to(torch.float32)
         else:
-            return crop_img(
+            if self.img_size is not None and image.shape != (self.img_size, self.img_size):
+                image = resize_img(image, self.img_size)
+            image_tensor = torch.tensor(image, dtype=torch.float32)
+
+        if image_tensor.ndim == 2:
+            image_tensor = image_tensor.unsqueeze(0)
+        elif image_tensor.ndim != 3:
+            raise ValueError(f"Expected 2D or 3D image tensor, got shape {tuple(image_tensor.shape)}")
+
+        if self.img_size is not None and image_tensor.shape[-2:] != (self.img_size, self.img_size):
+            resized = resize_img(image_tensor.squeeze(0).cpu().numpy(), self.img_size)
+            image_tensor = torch.tensor(resized, dtype=torch.float32).unsqueeze(0)
+
+        return image_tensor
+
+    def _sample_crops(self, image: Tensor, label: int) -> tuple[Tensor, Tensor]:
+        """Extract a stack of crops and the corresponding repeated labels."""
+        crop_size = self.augmentation_config.crop_size
+        if crop_size is None:
+            crops = image.unsqueeze(0)
+            labels = torch.tensor(label, dtype=torch.long).unsqueeze(0)
+            return crops, labels
+
+        # TODO: 
+        strategy = self.augmentation_config.strategy
+        if strategy == "overlap": # used for inference
+            crops = get_overlapping_crops(
                 image,
-                self.augmentation_config.crop_size,
-                self.augmentation_config.random_crop
-            ), label
-
-    def __getitem__(self, idx: int) -> Union[torch.Tensor, tuple[torch.Tensor, int]]:
-        image = self.images[idx]
-        label = self.labels[idx]
-
-        # apply cropping augmentation
-        image, label = self._crop(image, label)
-
-        # apply data augmentation
-        if self.transform is not None:
-            image = self.transform(image, bit_depth=self.bit_depth)
-
-        # normalize image
-        if self.normalize is not None:
-            image = normalize_img(
-                image,
-                self.normalize,
-                self.dataset_stats,
-                self.normalization_scope,
+                crop_size,
+                self.augmentation_config.crop_overlap,
             )
+            labels = torch.full((crops.shape[0],), label, dtype=torch.long)
+            return crops, labels
+
+        crops: list[Tensor] = []
+        labels: list[int] = []
+        for _ in range(self.num_crops_per_image):
+            if strategy == "background":
+                crop, crop_label = identify_background_crops(
+                    image,
+                    label,
+                    crop_size=crop_size,
+                    metrics=self.augmentation_config.metrics,
+                    threshold=self.augmentation_config.bg_threshold,
+                    difficulty_distribution=None,
+                    bg_label=-1,
+                )
+            elif strategy == "curriculum":
+                raise NotImplementedError(
+                    "Curriculum cropping is not supported in the lazy TIFF dataset yet."
+                )
+            else:
+                crop = crop_img(
+                    image,
+                    crop_size,
+                    self.augmentation_config.random_crop,
+                )
+                crop_label = label
+            crops.append(crop)
+            labels.append(crop_label)
+
+        return torch.stack(crops), torch.tensor(labels, dtype=torch.long)
+
+    def _apply_per_crop_processing(self, crops: Tensor) -> Tensor:
+        """Apply transforms and normalization independently to each crop."""
+        processed_crops: list[Tensor] = []
+        for crop in crops:
+            if self.transform is not None:
+                crop = self.transform(crop, bit_depth=self.bit_depth)
+            if self.normalize is not None:
+                crop = normalize_img(
+                    crop,
+                    self.normalize,
+                    self.normalization_scope,
+                    self.dataset_stats,
+                )
+            processed_crops.append(crop.to(torch.float32))
+        return torch.stack(processed_crops)
+
+    def __getitem__(self, idx: int) -> Union[Tensor, tuple[Tensor, Tensor]]:
+        image = self._load_image(idx)
+        _, source_label = self.inputs[idx]
+        label = self._transform_label(source_label)
+
+        crops, labels = self._sample_crops(image, label)
+        crops = self._apply_per_crop_processing(crops)
 
         if self.return_label:
-            return image, label
-        else:
-            return image
+            return crops, labels
+        return crops
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.inputs)
 
 
-# TODO: deal with stratified/balanced sampling of the dataset
-class MultiClassDataset(_BaseMemoryDataset):
-    """Dataset for multiclass classification where inputs are loaded from memory.
-        
-    Parameters
-    ----------
-    inputs : Sequence[tuple[PathLike, int]]
-        Sequence of tuples of image filename and label index (optional for test set)
-        for each sample.
-    split : Literal['train', 'test']
-        The split of the dataset, either 'train' or 'test'.
-    img_size : int
-        The size of the input images. If the input images are not of this size, they
-        will be resized to this size.
-    augmentation_config : DataAugmentationConfig
-        Configuration for data augmentation. If `None`, no augmentation is applied.
-    bit_depth : Optional[int], optional
-        The bit depth of the input images. If specified, the images will be normalized
-        to the range [0, 1] based on the bit depth. If `None`, no range normalization
-        is applied. By default `None`.
-    normalize : Literal['range', 'minmax', 'std'], optional
-        The normalization method to apply to the images.
-        - 'minmax': scales images to [0, 1] based on the min and max values.
-        - 'std': standardizes images to have zero mean and unit variance.
-        By default 'range'.
-    dataset_stats : Optional[tuple[float, float]], optional
-        Pre-computed dataset statistics (mean, std) or (min, max) for normalization.
-    return_label : bool, optional
-        Whether to return the label along with the image. If `False`, only the image is
-        returned. By default `True`.
-    """
+class MultiClassDataset(BaseTiffDataset):
+    """Lazy TIFF dataset for multiclass classification."""
 
-class BinaryDataset(_BaseMemoryDataset):
-    """Dataset for one-vs-rest binary classification.
 
-    The source labels are preserved internally in ``source_labels`` while the labels
-    returned by the dataset are mapped to binary targets relative to ``target_label``.
-    """
+class BinaryDataset(BaseTiffDataset):
+    """Lazy TIFF dataset for one-vs-rest binary classification."""
+
     def __init__(
         self,
         inputs: Sequence[tuple[PathLike, int]],
-        split: Literal['train', 'test'],
+        split: Literal["train", "test"],
         img_size: int,
         augmentation_config: DataAugmentationConfig,
+        num_crops_per_image: int,
         target_label: int,
         imreader: Callable[[PathLike], Union[NDArray, Tensor]] = tiff.imread,
         bit_depth: Optional[int] = None,
-        normalize: Optional[Literal['minmax', 'std']] = None,
-        normalization_scope: Literal['dataset', 'image'] = 'dataset',
+        normalize: Optional[Literal["minmax", "std"]] = None,
+        normalization_scope: Literal["dataset", "image"] = "dataset",
         dataset_stats: Optional[tuple[float, float]] = None,
         return_label: bool = True,
     ) -> None:
@@ -228,6 +195,7 @@ class BinaryDataset(_BaseMemoryDataset):
             split=split,
             img_size=img_size,
             augmentation_config=augmentation_config,
+            num_crops_per_image=num_crops_per_image,
             imreader=imreader,
             bit_depth=bit_depth,
             normalize=normalize,
@@ -236,8 +204,5 @@ class BinaryDataset(_BaseMemoryDataset):
             return_label=return_label,
         )
 
-    def _transform_label_to_binary(self, label: int) -> int:
-        """Map the source multiclass label to a binary label."""
-        if label == self.target_label:
-            return 1
-        return 0
+    def _transform_label(self, label: int) -> int:
+        return int(label == self.target_label)

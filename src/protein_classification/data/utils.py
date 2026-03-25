@@ -68,16 +68,16 @@ def _get_normalization_stats(
 
 
 def _minmax_normalize(
-    img: NDArray, min_val: float, max_val: float
-) -> NDArray:
+    img: NDArray | Tensor, min_val: float, max_val: float
+) -> NDArray | Tensor:
     """Apply min-max normalization to an image using dataset statistics."""
     denom = max(max_val - min_val, 1e-8)
     return (img - min_val) / denom
 
 
 def _std_normalize(
-    img: NDArray, mean: float, std: float
-) -> NDArray:
+    img: NDArray | Tensor, mean: float, std: float
+) -> NDArray | Tensor:
     """Apply standard normalization to an image using dataset statistics."""
     return (img - mean) / max(std, 1e-8)
 
@@ -382,3 +382,16 @@ def collate_test_time_crops(
     )
     crops = torch.cat(crops, dim=0)
     return crops, labels
+
+
+def collate_multi_crop_batches(
+    batch: list[tuple[Tensor, Tensor]]
+) -> tuple[Tensor, Tensor]:
+    """Flatten a batch of multi-crop samples into a standard image batch.
+
+    Each dataset item contains a tensor of crops with shape ``(K, C, H, W)`` and
+    the corresponding labels with shape ``(K,)``. This collate function concatenates
+    all crops and labels across the batch into ``(N, C, H, W)`` and ``(N,)``.
+    """
+    crops, labels = zip(*batch)
+    return torch.cat(crops, dim=0), torch.cat(labels, dim=0)
