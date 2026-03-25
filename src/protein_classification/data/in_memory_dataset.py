@@ -11,7 +11,8 @@ from torch import Tensor
 from protein_classification.config.data import DataAugmentationConfig
 from protein_classification.data.augmentations import transforms_factory
 from protein_classification.data.utils import (
-    compute_difficulty_score, crop_img, normalize_img, resize_img,
+    compute_difficulty_score, get_difficulty_score_distribution,
+    crop_img, normalize_img, resize_img,
     get_curriculum_learning_crops, get_overlapping_crops, identify_background_crops
 )
 
@@ -100,63 +101,6 @@ class _BaseMemoryDataset(Dataset):
             labels.append(int(label))
 
         return images, labels
-
-    def _get_difficulty_score_distribution(
-        self, k: int = 10, metrics: list[Literal["std"]] = ["std"], bins: int = 100
-    ) -> dict[int, torch.Tensor]:
-        """Get the distribution of "difficulty" scores of crops.
-
-        The difficulty of a crop is assumed to be inversely related to the amount of
-        signal present in it. Indeed, we assume that foreground crops with more signal
-        are easier to classify with respect to background crops.
-        The amount of signal can be measured by a mix of texture and variability
-        metrics, like edge detection, standard deviation, entropy, etc.
-
-        In order to compute the difficulty distribution, for each image we randomly
-        sample `k` crops of size `crop_size` and compute their difficulty score.
-
-        The returned tensor contains the quantiles of the difficulty scores
-        computed from the sampled crops. Larger values indicate easier crops.
-        
-        Parameters
-        ----------
-        k : int, optional
-            The number of crops to sample from each image, by default 10.
-        metrics : list[Literal["std"]], optional
-            A list of metrics to combine in order to compute the difficulty score.
-            By default ["std"].
-        bins : int, optional
-            The number of bins to use for the quantization of the difficulty distribution,
-            by default 100.
-            
-        Returns
-        -------
-        dict[int, torch.Tensor]
-            A dictionary of tensors of shape (bins + 1,) representing the quantiles of the
-            difficulty scores for each label computed over the sampled crops.
-        """
-        difficulty_scores: dict[int, list[float]] = {
-            label: [] for label in set(self.labels)
-        }
-        for img, label in tqdm(
-            zip(self.images, self.labels),
-            desc="Computing difficulty distribution",
-            total=len(self.images)
-        ):
-            for _ in range(k):
-                crop = crop_img(
-                    img, self.augmentation_config.crop_size, self.augmentation_config.random_crop
-                )
-                difficulty_scores[label].append(compute_difficulty_score(crop, metrics))
-
-        difficulty_scores = {
-            label: torch.tensor(scores, dtype=torch.float32)
-            for label, scores in difficulty_scores.items()
-        }
-        return {
-            label: torch.quantile(scores, torch.linspace(0, 1, bins + 1), interpolation='linear')
-            for label, scores in difficulty_scores.items()
-        }
 
     def _crop(self, image: Tensor, label: int) -> tuple[Tensor, int]:
         """Apply cropping to an image based on the provided configuration."""
