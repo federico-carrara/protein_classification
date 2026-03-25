@@ -3,7 +3,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from protein_classification.config.architecture import DenseNetConfig
+from protein_classification.config.architectures import DenseNetConfig
 from protein_classification.config.losses import LossConfig
 from protein_classification.config.training import TrainingConfig
 
