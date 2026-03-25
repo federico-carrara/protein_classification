@@ -13,6 +13,8 @@ def transforms_factory(
         return None
     elif name == 'geometric':
         return geometric_augmentation
+    elif name == 'intensity':
+        return intensity_augmentation
     elif name == 'noise':
         return noise_augmentation
     elif name == 'all':
@@ -40,8 +42,9 @@ def train_augmentation(
     Union[Tensor, Tuple[Tensor, Tensor]]
         Augmented image, and mask if provided.
     """
-    image = noise_augmentation(image, mask, bit_depth)
     image = geometric_augmentation(image, mask)
+    image = intensity_augmentation(image, mask, bit_depth)
+    image = noise_augmentation(image, mask, bit_depth)
     return (image, mask) if mask is not None else image
 
 
@@ -162,10 +165,19 @@ def augment_rotate(
 def noise_augmentation(
     image: Tensor, mask: Optional[Tensor] = None, bit_depth: int = 8
 ) -> Union[Tensor, tuple[Tensor, Tensor]]:
-    """Add random noise to the image."""
-    image = add_poisson_noise(image, bit_depth)
-    image = add_background(image, bit_depth)
-    image = add_gaussian_noise(image, bit_depth)
+    """Add mild random noise to the image."""
+    image = add_poisson_noise(image, bit_depth, scale_range=(20.0, 80.0))
+    image = add_gaussian_noise(image, bit_depth, std_range=(1e-3, 2e-2))
+    if mask is not None:
+        return image, mask
+    return image
+
+
+def intensity_augmentation(
+    image: Tensor, mask: Optional[Tensor] = None, bit_depth: int = 8
+) -> Union[Tensor, tuple[Tensor, Tensor]]:
+    """Apply mild intensity scaling to the image."""
+    image = scale_intensity(image, bit_depth=bit_depth)
     if mask is not None:
         return image, mask
     return image
@@ -195,6 +207,17 @@ def add_background(
     intensity = random.uniform(*intensity_range) * roof
     background = torch.full_like(image, intensity)
     return torch.clamp(image + background, 0.0, roof)
+
+
+def scale_intensity(
+    image: Tensor,
+    bit_depth: int = 8,
+    scale_range: tuple[float, float] = (0.9, 1.1),
+) -> Tensor:
+    """Apply mild multiplicative intensity scaling."""
+    roof = 2 ** bit_depth - 1
+    scale = random.uniform(*scale_range)
+    return torch.clamp(image * scale, 0.0, roof)
 
 def add_poisson_noise(
     image: Tensor,
