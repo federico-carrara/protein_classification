@@ -1,3 +1,4 @@
+import random
 from pathlib import Path
 from typing import Callable, Literal, Optional, Sequence, Union
 
@@ -95,7 +96,6 @@ class BaseTiffDataset(Dataset):
             labels = torch.tensor(label, dtype=torch.long).unsqueeze(0)
             return crops, labels
 
-        # TODO: 
         strategy = self.augmentation_config.strategy
         if strategy == "overlap": # used for inference
             crops = get_overlapping_crops(
@@ -109,31 +109,39 @@ class BaseTiffDataset(Dataset):
         crops: list[Tensor] = []
         labels: list[int] = []
         for _ in range(self.num_crops_per_image):
-            if strategy == "background":
-                crop, crop_label = identify_background_crops(
-                    image,
-                    label,
-                    crop_size=crop_size,
-                    metrics=self.augmentation_config.metrics,
-                    threshold=self.augmentation_config.bg_threshold,
-                    difficulty_distribution=None,
-                    bg_label=-1,
-                )
-            elif strategy == "curriculum":
-                raise NotImplementedError(
-                    "Curriculum cropping is not supported in the lazy TIFF dataset yet."
-                )
-            else:
-                crop = crop_img(
-                    image,
-                    crop_size,
-                    self.augmentation_config.random_crop,
-                )
-                crop_label = label
+            crop, crop_label = self._sample_single_crop(image, label)
             crops.append(crop)
             labels.append(crop_label)
 
         return torch.stack(crops), torch.tensor(labels, dtype=torch.long)
+
+    def _sample_single_crop(self, image: Tensor, label: int) -> tuple[Tensor, int]:
+        """Extract a single crop from an image."""
+        crop_size = self.augmentation_config.crop_size
+        if crop_size is None:
+            return image, label
+
+        strategy = self.augmentation_config.strategy
+        if strategy == "background":
+            return identify_background_crops(
+                image,
+                label,
+                crop_size=crop_size,
+                metrics=self.augmentation_config.metrics,
+                threshold=self.augmentation_config.bg_threshold,
+                difficulty_distribution=None,
+                bg_label=-1,
+            )
+        if strategy == "curriculum":
+            raise NotImplementedError(
+                "Curriculum cropping is not supported in the lazy TIFF dataset yet."
+            )
+        crop = crop_img(
+            image,
+            crop_size,
+            self.augmentation_config.random_crop,
+        )
+        return crop, label
 
     def _apply_per_crop_processing(self, crops: Tensor) -> Tensor:
         """Apply transforms and normalization independently to each crop."""
@@ -192,6 +200,10 @@ class BinaryDataset(BaseTiffDataset):
         augmentation_config: DataAugmentationConfig,
         num_crops_per_image: int,
         target_label: int,
+        positive_probability: float = 0.5,
+        negative_family_weights: Optional[dict[str, float]] = None,
+        mixed_alpha_range: tuple[float, float] = (0.3, 0.7),
+        mixed_num_sources: int = 2,
         imreader: Callable[[PathLike], Union[NDArray, Tensor]] = tiff.imread,
         bit_depth: Optional[int] = None,
         normalize: Optional[Literal["minmax", "std"]] = None,
@@ -200,6 +212,14 @@ class BinaryDataset(BaseTiffDataset):
         return_label: bool = True,
     ) -> None:
         self.target_label = int(target_label)
+        self.positive_probability = float(positive_probability)
+        self.negative_family_weights = negative_family_weights or {
+            "easy": 1.0,
+            "mixed": 1.0,
+            "inverted": 1.0,
+        }
+        self.mixed_alpha_range = mixed_alpha_range
+        self.mixed_num_sources = mixed_num_sources
         super().__init__(
             inputs=inputs,
             split=split,
@@ -213,6 +233,121 @@ class BinaryDataset(BaseTiffDataset):
             dataset_stats=dataset_stats,
             return_label=return_label,
         )
+        self._validate_binary_sampling_config()
+        self.target_indices = [
+            idx for idx, (_, label) in enumerate(self.inputs)
+            if int(label) == self.target_label
+        ]
+        self.non_target_indices = [
+            idx for idx, (_, label) in enumerate(self.inputs)
+            if int(label) != self.target_label
+        ]
+        if not self.target_indices:
+            raise ValueError("BinaryDataset requires at least one target-class sample.")
+        if not self.non_target_indices:
+            raise ValueError("BinaryDataset requires at least one non-target sample.")
 
     def _transform_label(self, label: int) -> int:
         return int(label == self.target_label)
+
+    def _validate_binary_sampling_config(self) -> None:
+        """Validate binary negative-sampling configuration."""
+        valid_families = {"easy", "mixed", "inverted"}
+        if not 0.0 <= self.positive_probability <= 1.0:
+            raise ValueError("`positive_probability` must be in [0, 1].")
+        if self.mixed_num_sources < 2:
+            raise ValueError("`mixed_num_sources` must be >= 2.")
+        if len(self.mixed_alpha_range) != 2:
+            raise ValueError("`mixed_alpha_range` must be a tuple of length 2.")
+        alpha_min, alpha_max = self.mixed_alpha_range
+        if not 0.0 <= alpha_min <= alpha_max <= 1.0:
+            raise ValueError("`mixed_alpha_range` values must satisfy 0 <= min <= max <= 1.")
+        unknown_families = set(self.negative_family_weights) - valid_families
+        if unknown_families:
+            raise ValueError(
+                f"Unknown negative families: {sorted(unknown_families)}."
+            )
+        if any(weight < 0 for weight in self.negative_family_weights.values()):
+            raise ValueError("Negative family weights must be non-negative.")
+        if sum(self.negative_family_weights.values()) <= 0:
+            raise ValueError("At least one negative family weight must be positive.")
+
+    def _sample_index(self, indices: list[int]) -> int:
+        """Sample one dataset index from a pool."""
+        return random.choice(indices)
+
+    def _sample_negative_family(self) -> str:
+        """Sample which negative family to generate."""
+        families = list(self.negative_family_weights.keys())
+        weights = list(self.negative_family_weights.values())
+        return random.choices(families, weights=weights, k=1)[0]
+
+    def _sample_positive_crop(self) -> tuple[Tensor, int]:
+        """Sample one positive crop from the target class."""
+        idx = self._sample_index(self.target_indices)
+        image = self._load_image(idx)
+        crop, _ = self._sample_single_crop(image, label=1)
+        return crop, 1
+
+    def _sample_easy_negative_crop(self) -> tuple[Tensor, int]:
+        """Sample one easy negative crop from a non-target class."""
+        idx = self._sample_index(self.non_target_indices)
+        image = self._load_image(idx)
+        crop, _ = self._sample_single_crop(image, label=0)
+        return crop, 0
+
+    def _sample_inverted_negative_crop(self) -> tuple[Tensor, int]:
+        """Sample one inverted negative crop from the target class."""
+        crop, _ = self._sample_positive_crop()
+        crop = normalize_img(crop, "minmax", "image")
+        crop = 1.0 - crop
+        return crop, 0
+
+    def _sample_mixed_negative_crop(self) -> tuple[Tensor, int]:
+        """Sample one mixed negative crop from cropped patches."""
+        target_crop, _ = self._sample_positive_crop()
+        target_crop = normalize_img(target_crop, "minmax", "image")
+
+        aux_crops: list[Tensor] = []
+        for _ in range(self.mixed_num_sources - 1):
+            idx = self._sample_index(self.non_target_indices)
+            image = self._load_image(idx)
+            aux_crop, _ = self._sample_single_crop(image, label=0)
+            aux_crops.append(normalize_img(aux_crop, "minmax", "image"))
+
+        alpha = random.uniform(*self.mixed_alpha_range)
+        aux_mean = torch.stack(aux_crops).mean(dim=0)
+        mixed_crop = alpha * target_crop + (1.0 - alpha) * aux_mean
+        return mixed_crop, 0
+
+    def _sample_binary_crop(self) -> tuple[Tensor, int]:
+        """Sample one crop according to the binary sample policy."""
+        if random.random() < self.positive_probability:
+            return self._sample_positive_crop()
+
+        family = self._sample_negative_family()
+        if family == "easy":
+            return self._sample_easy_negative_crop()
+        if family == "mixed":
+            return self._sample_mixed_negative_crop()
+        if family == "inverted":
+            return self._sample_inverted_negative_crop()
+        raise ValueError(f"Unknown negative family: {family}")
+
+    def __getitem__(self, idx: int) -> Union[Tensor, tuple[Tensor, Tensor]]:
+        if self.augmentation_config.strategy == "overlap":
+            return super().__getitem__(idx)
+
+        crops: list[Tensor] = []
+        labels: list[int] = []
+        for _ in range(self.num_crops_per_image):
+            crop, label = self._sample_binary_crop()
+            crops.append(crop)
+            labels.append(label)
+
+        processed_crops = self._apply_per_crop_processing(torch.stack(crops))
+        labels_tensor = torch.tensor(labels, dtype=torch.long)
+
+        if self.return_label:
+            return processed_crops, labels_tensor
+        return processed_crops
