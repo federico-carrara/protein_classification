@@ -42,7 +42,7 @@ class DataAugmentationConfig(BaseModel):
     """The overlap between crops at test time. If `None`, no overlap is applied.
     This is used for "overlap" strategy."""
     
-    metrics: list[Literal["std"]] = ["std"]
+    metrics: list[Literal["std", "entropy"]] = ["std"]
     """A list of metrics to combine in order to compute the difficulty score.
     By default ["std"]."""
 
@@ -58,6 +58,10 @@ class DataAugmentationConfig(BaseModel):
     bg_threshold: Optional[float] = None
     """Threshold for `metrics` values for identification of background crops.
     If `None`, the threshold is inferred from the metric distribution."""
+
+    bg_thresholds: Optional[dict[int, float]] = None
+    """Optional per-label thresholds for background identification.
+    If provided, these take precedence over `bg_threshold`."""
 
     @model_validator(mode='after')
     def validate_config(self: Self) -> Self:
