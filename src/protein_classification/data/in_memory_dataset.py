@@ -219,7 +219,7 @@ class BinaryDataset(BaseTiffDataset):
             "inverted": 1.0,
         }
         self.mixed_alpha_range = mixed_alpha_range
-        self.mixed_num_sources = mixed_num_sources
+        self.mixed_num_sources = mixed_num_sources # TODO: sample variable number of sources up to this max
         super().__init__(
             inputs=inputs,
             split=split,
@@ -309,7 +309,8 @@ class BinaryDataset(BaseTiffDataset):
         target_crop = normalize_img(target_crop, "minmax", "image")
 
         aux_crops: list[Tensor] = []
-        for _ in range(self.mixed_num_sources - 1):
+        num_sources = random.randint(1, self.mixed_num_sources - 1)
+        for _ in range(num_sources):
             idx = self._sample_index(self.non_target_indices)
             image = self._load_image(idx)
             aux_crop, _ = self._sample_single_crop(image, label=0)
