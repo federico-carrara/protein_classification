@@ -129,6 +129,7 @@ class BaseTiffDataset(Dataset):
                 crop_size=crop_size,
                 metrics=self.augmentation_config.metrics,
                 threshold=self.augmentation_config.bg_threshold,
+                thresholds_by_label=self.augmentation_config.bg_thresholds,
                 difficulty_distribution=None,
                 bg_label=-1,
             )
@@ -341,7 +342,7 @@ class BinaryDataset(BaseTiffDataset):
 
         crops: list[Tensor] = []
         labels: list[int] = []
-        for _ in range(self.num_crops_per_image):
+        for _ in range(self.num_crops_per_image): # TODO: drop, as we can now sample from the reservoir
             crop, label = self._sample_binary_crop()
             crops.append(crop)
             labels.append(label)

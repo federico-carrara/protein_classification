@@ -1,6 +1,10 @@
-from typing import Literal, Optional, Union
+import random as rnd
+from collections import defaultdict
+from pathlib import Path
+from typing import Callable, Literal, Optional, Sequence, Union
 
 import numpy as np
+import tifffile as tiff
 import torch
 from numpy.typing import NDArray
 from skimage.transform import resize
@@ -117,14 +121,30 @@ def crop_img(img: NDArray | Tensor, crop_size: int, random_crop: bool) -> NDArra
 
 def compute_difficulty_score(
     image: Tensor,
-    metrics: list[Literal["std"]] = ["std"]
+    metrics: list[Literal["std", "entropy"]] = ["std"]
 ) -> float:
     """Compute the difficulty score of an image as the combination of the specified metrics."""
-    # TODO: add more metrics
+    image = normalize_img(image, "minmax", "image")
     score = 0.0
     if "std" in metrics:
         score += image.std().item()
+    if "entropy" in metrics:
+        score += compute_shannon_entropy(image)
     return score
+
+
+def compute_shannon_entropy(
+    image: Tensor,
+    num_bins: int = 32,
+    eps: float = 1e-8,
+) -> float:
+    """Compute Shannon entropy on a min-max normalized patch."""
+    image = normalize_img(image, "minmax", "image")
+    hist = torch.histc(image, bins=num_bins, min=0.0, max=1.0)
+    probs = hist / hist.sum().clamp_min(eps)
+    probs = probs[probs > 0]
+    entropy = -(probs * torch.log2(probs.clamp_min(eps))).sum()
+    return float(entropy.item())
 
 def get_difficulty_score_distribution(
         images: list[Tensor],
@@ -132,7 +152,7 @@ def get_difficulty_score_distribution(
         crop_size: int,
         random_crop: bool,
         k: int = 10,
-        metrics: list[Literal["std"]] = ["std"],
+        metrics: list[Literal["std", "entropy"]] = ["std"],
         bins: int = 100
     ) -> dict[int, torch.Tensor]:
     """Get the distribution of "difficulty" scores of crops.
@@ -196,7 +216,7 @@ def get_curriculum_learning_crops(
     image: Tensor,
     crop_size: int,
     difficulty_distrib: Union[None, list[float]] = None,
-    metrics: list[Literal["std"]] = ["std"],
+    metrics: list[Literal["std", "entropy"]] = ["std"],
     epoch: int = 0,
     total_epochs: int = 100,
     beta_max_alpha: float = 5.0,
@@ -307,8 +327,9 @@ def identify_background_crops(
     image: Tensor,
     label: int,
     crop_size: int,
-    metrics: list[Literal["std"]] = ["std"],
+    metrics: list[Literal["std", "entropy"]] = ["std"],
     threshold: Optional[float] = None,
+    thresholds_by_label: Optional[dict[int, float]] = None,
     difficulty_distribution: Optional[list[float]] = None,
     bg_label: int = -1
 ) -> tuple[Tensor, int]:
@@ -318,6 +339,9 @@ def identify_background_crops(
     The signal threshold is either provided as input to the function or
     computed from the difficulty distribution of the dataset.
     """
+    if thresholds_by_label is not None:
+        threshold = thresholds_by_label.get(int(label), threshold)
+
     if threshold is None:
         if difficulty_distribution is None:
             raise ValueError(
@@ -331,6 +355,61 @@ def identify_background_crops(
         return crop, bg_label
     else:
         return crop, label
+
+
+def compute_background_thresholds(
+    inputs: Sequence[tuple[Union[str, Path], int]],
+    img_size: int,
+    crop_size: int,
+    random_crop: bool,
+    metrics: list[Literal["std", "entropy"]],
+    quantile: float = 0.1,
+    samples_per_image: int = 4,
+    max_images: Optional[int] = None,
+    imreader: Callable[[Union[str, Path]], Union[NDArray, Tensor]] = tiff.imread,
+) -> dict[int, float]:
+    """Precompute per-label background thresholds from training data.
+
+    Thresholds are computed as score quantiles over random crops from the train split.
+    """
+    if not 0.0 <= quantile <= 1.0:
+        raise ValueError("`quantile` must be in [0, 1].")
+
+    score_by_label: dict[int, list[float]] = defaultdict(list)
+    if max_images is not None:
+        selected_inputs = list(rnd.shuffle(inputs)[:max_images])
+    else:
+        selected_inputs = list(inputs)
+
+    for fpath, label in tqdm(selected_inputs, desc="Computing background thresholds"):
+        image = imreader(fpath)
+        if isinstance(image, torch.Tensor):
+            image_tensor = image.to(torch.float32)
+        else:
+            if img_size is not None and image.shape != (img_size, img_size):
+                image = resize_img(image, img_size)
+            image_tensor = torch.tensor(image, dtype=torch.float32)
+
+        if image_tensor.ndim == 2:
+            image_tensor = image_tensor.unsqueeze(0)
+        elif image_tensor.ndim != 3:
+            raise ValueError(
+                f"Expected 2D or 3D image tensor, got shape {tuple(image_tensor.shape)}"
+            )
+
+        if img_size is not None and image_tensor.shape[-2:] != (img_size, img_size):
+            resized = resize_img(image_tensor.squeeze(0).cpu().numpy(), img_size)
+            image_tensor = torch.tensor(resized, dtype=torch.float32).unsqueeze(0)
+
+        for _ in range(samples_per_image):
+            crop = crop_img(image_tensor, crop_size, random_crop)
+            score_by_label[int(label)].append(compute_difficulty_score(crop, metrics))
+
+    return {
+        label: float(np.quantile(scores, quantile))
+        for label, scores in score_by_label.items()
+        if scores
+    }
 
 
 def resize_img(img: NDArray, size: int) -> NDArray:
