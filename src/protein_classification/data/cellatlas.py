@@ -1,6 +1,5 @@
 """Functions to get file paths and labels for the CellAtlas dataset."""
 import json
-import random
 from collections import defaultdict
 from pathlib import Path
 from typing import Sequence, Union
@@ -92,7 +91,7 @@ def get_cellatlas_filepaths_and_labels(
         "Microtubules": 1,
         "Endoplasmic reticulum": 2,
     }
-    curr_labels_dict.update({label: (i + 3) for i, label in enumerate(extra_labels[1:])})
+    curr_labels_dict.update({label: (i + 3) for i, label in enumerate(extra_labels)})
     
     out_fpaths: list[str] = []
     out_labels: list[int] = []

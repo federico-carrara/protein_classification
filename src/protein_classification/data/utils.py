@@ -367,20 +367,21 @@ def compute_background_thresholds(
     random_crop: bool,
     metrics: list[Literal["std", "entropy"]],
     quantile: float = 0.1,
+    quantiles_by_label: Optional[dict[int, float]] = None,
     samples_per_image: int = 4,
     max_images: Optional[int] = None,
     imreader: Callable[[Union[str, Path]], Union[NDArray, Tensor]] = tiff.imread,
 ) -> dict[int, float]:
     """Precompute per-label background thresholds from training data.
 
-    Thresholds are computed as score quantiles over random crops from the train split.
+    Thresholds are computed as per-label score quantiles over random crops.
     """
     if not 0.0 <= quantile <= 1.0:
         raise ValueError("`quantile` must be in [0, 1].")
 
     score_by_label: dict[int, list[float]] = defaultdict(list)
     if max_images is not None:
-        idxs = np.random.sample(len(inputs), min(max_images, len(inputs)), replace=False)
+        idxs = np.random.choice(len(inputs), min(max_images, len(inputs)), replace=False)
         selected_inputs = [inputs[i] for i in idxs]
     else:
         selected_inputs = list(inputs)
@@ -409,11 +410,17 @@ def compute_background_thresholds(
             crop = crop_img(image_tensor, crop_size, random_crop)
             score_by_label[int(label)].append(compute_background_score(crop, metrics))
 
-    return {
-        label: float(np.quantile(scores, quantile))
-        for label, scores in score_by_label.items()
-        if scores
-    }
+    thresholds: dict[int, float] = {}
+    for label, scores in score_by_label.items():
+        if not scores:
+            continue
+        label_quantile = quantile
+        if quantiles_by_label is not None:
+            label_quantile = quantiles_by_label.get(int(label), quantile)
+        thresholds[int(label)] = float(
+            np.quantile(np.asarray(scores, dtype=np.float32), label_quantile)
+        )
+    return thresholds
 
 
 def resize_img(img: NDArray, size: int) -> NDArray:

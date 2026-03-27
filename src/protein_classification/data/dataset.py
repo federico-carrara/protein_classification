@@ -48,6 +48,7 @@ class BaseTiffDataset(Dataset):
         dataset_stats: Optional[tuple[float, float]] = None,
         background_rejection_prob: float = 1.0,
         background_threshold_quantile: float = 0.1,
+        background_threshold_quantiles_by_label: Optional[dict[int, float]] = None,
         background_threshold_samples_per_image: int = 4,
         background_threshold_max_images: Optional[int] = 50,
         background_metrics: Optional[list[Literal["std", "entropy"]]] = None,
@@ -66,6 +67,7 @@ class BaseTiffDataset(Dataset):
         self.dataset_stats = dataset_stats
         self.background_rejection_prob = background_rejection_prob
         self.background_threshold_quantile = background_threshold_quantile
+        self.background_threshold_quantiles_by_label = background_threshold_quantiles_by_label
         self.background_threshold_samples_per_image = background_threshold_samples_per_image
         self.background_threshold_max_images = background_threshold_max_images
         self.background_metrics = background_metrics or ["std"]
@@ -238,6 +240,7 @@ class BinaryDataset(BaseTiffDataset):
         dataset_stats: Optional[tuple[float, float]] = None,
         background_rejection_prob: float = 0.9,
         background_threshold_quantile: float = 0.05,
+        background_threshold_quantiles_by_label: Optional[dict[int, float]] = None,
         background_threshold_samples_per_image: int = 4,
         background_threshold_max_images: Optional[int] = 50,
         background_metrics: Optional[list[Literal["std", "entropy"]]] = None,
@@ -265,6 +268,7 @@ class BinaryDataset(BaseTiffDataset):
             dataset_stats=dataset_stats,
             background_rejection_prob=background_rejection_prob,
             background_threshold_quantile=background_threshold_quantile,
+            background_threshold_quantiles_by_label=background_threshold_quantiles_by_label,
             background_threshold_samples_per_image=background_threshold_samples_per_image,
             background_threshold_max_images=background_threshold_max_images,
             background_metrics=background_metrics,
@@ -405,6 +409,7 @@ class BinaryDataset(BaseTiffDataset):
             random_crop=self.augmentation_config.random_crop,
             metrics=self.background_metrics,
             quantile=self.background_threshold_quantile,
+            quantiles_by_label=self.background_threshold_quantiles_by_label,
             samples_per_image=self.background_threshold_samples_per_image,
             max_images=self.background_threshold_max_images,
             imreader=self.imreader,
