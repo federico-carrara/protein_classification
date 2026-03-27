@@ -1,5 +1,6 @@
 """Functions to get file paths and labels for the CellAtlas dataset."""
 import json
+import random
 from collections import defaultdict
 from pathlib import Path
 from typing import Sequence, Union
@@ -72,24 +73,26 @@ def _get_filepaths_with_labels(
 
 def get_cellatlas_filepaths_and_labels(
     data_dir: PathLike,
-    protein_labels: Sequence[str],
+    extra_labels: Sequence[str],
     rel_data_path: PathLike = "./train_data_raw/",
     rel_labels_path: PathLike = "./labels_list.json",
     rel_fnames_labels_pairs_path: PathLike = "./train_labels.csv"
 ) -> tuple[list[tuple[Path, int]], dict[str, int]]:
-    """Get the file paths and labels for the Cell Atlas dataset."""
+    """Get the file paths and labels for the CellAtlas dataset.
+    
+    Returned image file paths are for all images of a given protein label,
+    including the paired reference channels (nucleus, microtubules, ER).
+    """
     labels_dict = _load_labels_dict(data_dir, rel_labels_path)
     pairs_df = _load_fname_label_pairs(data_dir, rel_fnames_labels_pairs_path)
-    fpaths_by_label = _get_filepaths_with_labels(pairs_df, protein_labels, labels_dict)
-    
+    fpaths_by_label = _get_filepaths_with_labels(pairs_df, extra_labels, labels_dict)
+
     curr_labels_dict = {
         "Nucleus" : 0,
-        "Microtubules": 2,
-        "Endoplasmic reticulum": 3,
+        "Microtubules": 1,
+        "Endoplasmic reticulum": 2,
     }
-    curr_labels_dict.update({protein_labels[0]: 1})
-    if len(protein_labels) > 1:
-        curr_labels_dict.update({label: (i + 4) for i, label in enumerate(protein_labels[1:])})
+    curr_labels_dict.update({label: (i + 3) for i, label in enumerate(extra_labels[1:])})
     
     out_fpaths: list[str] = []
     out_labels: list[int] = []

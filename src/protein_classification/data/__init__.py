@@ -1,2 +1,2 @@
-from .in_memory_dataset import BaseTiffDataset, BinaryDataset, MultiClassDataset
+from .dataset import BaseTiffDataset, BinaryDataset, MultiClassDataset
 from .lambdaSplit_preds_dataset import LambdaSplitPredsDataset

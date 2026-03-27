@@ -33,7 +33,7 @@ def normalize_img(
     dataset_stats: Optional[tuple[float, float]] = None,
 ) -> NDArray | Tensor:
     """Normalize an image using dataset-level or per-image statistics."""
-    stats = _get_normalization_stats(img, method, dataset_stats, scope)
+    stats = _get_normalization_stats(img, method, scope, dataset_stats)
     if method == 'minmax':
         min_val, max_val = stats
         return _minmax_normalize(img, min_val, max_val)
