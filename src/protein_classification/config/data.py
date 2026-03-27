@@ -1,11 +1,11 @@
 from pathlib import Path
 from typing import Callable, Literal, Optional, Sequence, Union
-from typing_extensions import Self
 
 import tifffile as tiff
 from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from torch import Tensor
+from typing_extensions import Self
 
 PathLike = Union[Path, str]
 
@@ -34,49 +34,6 @@ class DataAugmentationConfig(BaseModel):
     random_crop: bool = False
     """Whether to apply random cropping to the images. If `False`, center cropping is
     applied."""
-    
-    strategy: Optional[Literal["curriculum", "overlap", "background"]] = None
-    """The cropping strategy to use. If `None`, simple cropping is applied."""
-    
-    crop_overlap: Optional[int] = None
-    """The overlap between crops at test time. If `None`, no overlap is applied.
-    This is used for "overlap" strategy."""
-    
-    metrics: list[Literal["std", "entropy"]] = ["std"]
-    """A list of metrics to combine in order to compute the difficulty score.
-    By default ["std"]."""
-
-    total_epochs: Optional[int] = Field(None, ge=0)
-    """Total number of epochs on which curriculum learning is applied."""
-
-    beta_max_alpha: float = 5.0
-    """Initial Beta(α, 1) skew; α anneals from `beta_max_alpha` to 1."""
-
-    sampling_patience: int = 10
-    """Maximum number of crops to sample before giving up on finding a suitable crop."""
-    
-    bg_threshold: Optional[float] = None
-    """Threshold for `metrics` values for identification of background crops.
-    If `None`, the threshold is inferred from the metric distribution."""
-
-    bg_thresholds: Optional[dict[int, float]] = None
-    """Optional per-label thresholds for background identification.
-    If provided, these take precedence over `bg_threshold`."""
-
-    @model_validator(mode='after')
-    def validate_config(self: Self) -> Self:
-        """Validate the configuration."""
-        if (
-            self.strategy == "curriculum" or
-            self.strategy == "background" and
-            not self.random_crop
-        ):
-            print(
-                "Warning: `curriculum` or `background` strategy is enabled, "
-                "so `random_crop` will be forced to `True`."
-            )
-            self.random_crop = True
-        return self
 
 
 class DataConfig(BaseModel):

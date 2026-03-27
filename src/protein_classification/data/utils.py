@@ -438,31 +438,6 @@ def train_test_split(
     return train_data, test_data
 
 
-def collate_test_time_crops(
-    batch: list[tuple[list[Tensor], int]]
-) -> tuple[Tensor, Tensor]:
-    """Collate function for overlapping crops used at test time.
-
-    Parameters
-    ----------
-    batch : tuple[list[Tensor], int]
-        A batch, where each item is a tuple including the list of overlapping crops as
-        a tensors of shape (N_i, C, crop_size, crop_size) and an integer label.
-
-    Returns
-    -------
-    tuple[Tensor, Tensor]
-        Concatenated tensor of crops of shape (B * N_i, C, crop_size, crop_size) and
-        a tensor of labels of shape (B * N_i,).
-    """
-    crops, labels = zip(*batch)
-    labels = torch.tensor(labels).repeat_interleave(
-        torch.tensor([len(crop) for crop in crops])
-    )
-    crops = torch.cat(crops, dim=0)
-    return crops, labels
-
-
 def collate_multi_crop_batches(
     batch: list[tuple[Tensor, Tensor]]
 ) -> tuple[Tensor, Tensor]:

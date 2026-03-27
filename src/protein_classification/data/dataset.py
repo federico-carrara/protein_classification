@@ -16,8 +16,6 @@ from protein_classification.data.augmentations import (
 )
 from protein_classification.data.utils import (
     crop_img,
-    get_overlapping_crops,
-    identify_background_crops,
     normalize_img,
     resize_img,
 )
@@ -96,16 +94,6 @@ class BaseTiffDataset(Dataset):
             labels = torch.tensor(label, dtype=torch.long).unsqueeze(0)
             return crops, labels
 
-        strategy = self.augmentation_config.strategy
-        if strategy == "overlap": # used for inference
-            crops = get_overlapping_crops(
-                image,
-                crop_size,
-                self.augmentation_config.crop_overlap,
-            )
-            labels = torch.full((crops.shape[0],), label, dtype=torch.long)
-            return crops, labels
-
         crops: list[Tensor] = []
         labels: list[int] = []
         for _ in range(self.num_crops_per_image):
@@ -121,22 +109,6 @@ class BaseTiffDataset(Dataset):
         if crop_size is None:
             return image, label
 
-        strategy = self.augmentation_config.strategy
-        if strategy == "background":
-            return identify_background_crops(
-                image,
-                label,
-                crop_size=crop_size,
-                metrics=self.augmentation_config.metrics,
-                threshold=self.augmentation_config.bg_threshold,
-                thresholds_by_label=self.augmentation_config.bg_thresholds,
-                difficulty_distribution=None,
-                bg_label=-1,
-            )
-        if strategy == "curriculum":
-            raise NotImplementedError(
-                "Curriculum cropping is not supported in the lazy TIFF dataset yet."
-            )
         crop = crop_img(
             image,
             crop_size,
@@ -337,12 +309,9 @@ class BinaryDataset(BaseTiffDataset):
         raise ValueError(f"Unknown negative family: {family}")
 
     def __getitem__(self, idx: int) -> Union[Tensor, tuple[Tensor, Tensor]]:
-        if self.augmentation_config.strategy == "overlap":
-            return super().__getitem__(idx)
-
         crops: list[Tensor] = []
         labels: list[int] = []
-        for _ in range(self.num_crops_per_image): # TODO: drop, as we can now sample from the reservoir
+        for _ in range(self.num_crops_per_image):
             crop, label = self._sample_binary_crop()
             crops.append(crop)
             labels.append(label)
