@@ -1,3 +1,4 @@
+import math
 import random
 from collections import defaultdict
 from pathlib import Path
@@ -242,13 +243,12 @@ class BinaryDataset(BaseTiffDataset):
             return_label=return_label,
         )
         self._validate_binary_sampling_config()
+        
+        # Split indices into target (positive class) and non-target (others)
         self.target_indices = [
             idx for idx, (_, label) in enumerate(self.inputs)
             if int(label) == self.target_label
         ]
-        self.indices_by_label: dict[int, list[int]] = defaultdict(list)
-        for idx, (_, label) in enumerate(self.inputs):
-            self.indices_by_label[int(label)].append(idx)
         self.non_target_indices = [
             idx for idx, (_, label) in enumerate(self.inputs)
             if int(label) != self.target_label
@@ -257,6 +257,12 @@ class BinaryDataset(BaseTiffDataset):
             raise ValueError("BinaryDataset requires at least one target-class sample.")
         if not self.non_target_indices:
             raise ValueError("BinaryDataset requires at least one non-target sample.")
+        
+        # Maintain a list of indices of source files for each label for stratified sampling
+        self.indices_by_label: dict[int, list[int]] = defaultdict(list)
+        for idx, (_, label) in enumerate(self.inputs):
+            self.indices_by_label[int(label)].append(idx)
+        
         self._reset_source_pools()
         self._clear_reservoir()
 
@@ -325,7 +331,9 @@ class BinaryDataset(BaseTiffDataset):
             if not self.remaining_target_indices:
                 if selected:
                     break
-                self._reset_source_pools()
+                # Reset only the target pool to avoid corrupting the non-target pass.
+                self.remaining_target_indices = self.target_indices.copy()
+                random.shuffle(self.remaining_target_indices)
             draw = min(quota - len(selected), len(self.remaining_target_indices))
             selected.extend(self.remaining_target_indices[:draw])
             del self.remaining_target_indices[:draw]
@@ -342,7 +350,14 @@ class BinaryDataset(BaseTiffDataset):
             if not available_labels:
                 if selected:
                     break
-                self._reset_source_pools()
+                # Reset only the non-target pool to avoid corrupting the target pass.
+                self.remaining_non_target_indices_by_label = {
+                    label: indices.copy()
+                    for label, indices in self.indices_by_label.items()
+                    if label != self.target_label
+                }
+                for indices in self.remaining_non_target_indices_by_label.values():
+                    random.shuffle(indices)
                 available_labels = [
                     label for label, indices in self.remaining_non_target_indices_by_label.items()
                     if indices
@@ -384,8 +399,7 @@ class BinaryDataset(BaseTiffDataset):
         return target_group, non_target_group
 
     def _materialize_reservoir(self) -> None:
-        """Load one source group and populate the crop reservoir."""
-        self._clear_reservoir()
+        """Load one source group and append crops to the existing reservoir pools."""
         target_group, non_target_group = self._sample_source_group()
 
         for idx in target_group:
@@ -493,7 +507,7 @@ class BinaryDataset(BaseTiffDataset):
         raise ValueError(f"Unknown negative family: {family}")
 
     def __getitem__(self, idx: int) -> Union[Tensor, tuple[Tensor, Tensor]]:
-        if self.augmentation_config.strategy == "overlap":
+        if self.augmentation_config.strategy == "overlap": # TODO: create a different dataset for inference for simplicity and maintainability
             return super().__getitem__(idx)
 
         if not self.positive_pool and not self.negative_pool:
@@ -512,3 +526,13 @@ class BinaryDataset(BaseTiffDataset):
         if self.return_label:
             return processed_crops, labels_tensor
         return processed_crops
+
+    def __len__(self) -> int:
+        """Approximate one dataset pass as one pass over reservoir source groups."""
+        n_target_groups = math.ceil(
+            len(self.target_indices) / self.num_source_files_per_group_target
+        )
+        n_non_target_groups = math.ceil(
+            len(self.non_target_indices) / self.num_source_files_per_group_non_target
+        )
+        return max(n_target_groups, n_non_target_groups)

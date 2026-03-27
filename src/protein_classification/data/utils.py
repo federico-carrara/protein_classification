@@ -377,7 +377,9 @@ def compute_background_thresholds(
 
     score_by_label: dict[int, list[float]] = defaultdict(list)
     if max_images is not None:
-        selected_inputs = list(rnd.shuffle(inputs)[:max_images])
+        selected_inputs = list(inputs)
+        rnd.shuffle(selected_inputs)
+        selected_inputs = selected_inputs[:max_images]
     else:
         selected_inputs = list(inputs)
 
@@ -456,11 +458,7 @@ def collate_test_time_crops(
         a tensor of labels of shape (B * N_i,).
     """
     crops, labels = zip(*batch)
-    labels = torch.tensor(labels).repeat_interleave(
-        torch.tensor([len(crop) for crop in crops])
-    )
-    crops = torch.cat(crops, dim=0)
-    return crops, labels
+    return torch.cat(crops, dim=0), torch.cat(labels, dim=0)
 
 
 def collate_multi_crop_batches(
