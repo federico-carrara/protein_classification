@@ -46,6 +46,11 @@ class BaseTiffDataset(Dataset):
         normalize: Optional[Literal["minmax", "std"]] = None,
         normalization_scope: Literal["dataset", "image"] = "dataset",
         dataset_stats: Optional[tuple[float, float]] = None,
+        background_rejection_prob: float = 1.0,
+        background_threshold_quantile: float = 0.1,
+        background_threshold_samples_per_image: int = 4,
+        background_threshold_max_images: Optional[int] = 50,
+        background_metrics: Optional[list[Literal["std", "entropy"]]] = None,
         return_label: bool = True,
     ) -> None:
         super().__init__()
@@ -59,6 +64,11 @@ class BaseTiffDataset(Dataset):
         self.normalize = normalize
         self.normalization_scope = normalization_scope
         self.dataset_stats = dataset_stats
+        self.background_rejection_prob = background_rejection_prob
+        self.background_threshold_quantile = background_threshold_quantile
+        self.background_threshold_samples_per_image = background_threshold_samples_per_image
+        self.background_threshold_max_images = background_threshold_max_images
+        self.background_metrics = background_metrics or ["std"]
         self.imreader = imreader
         self.return_label = return_label
         self.augmentation_config = augmentation_config
@@ -122,7 +132,7 @@ class BaseTiffDataset(Dataset):
         if (
             source_label is None or
             background_thresholds is None or
-            self.augmentation_config.background_rejection_prob <= 0.0
+            self.background_rejection_prob <= 0.0
         ):
             crop = crop_img(
                 image,
@@ -150,11 +160,11 @@ class BaseTiffDataset(Dataset):
             last_crop = crop
             score = compute_background_score(
                 crop,
-                self.augmentation_config.background_metrics,
+                self.background_metrics,
             )
             if score >= threshold:
                 return crop, label
-            if random.random() >= self.augmentation_config.background_rejection_prob:
+            if random.random() >= self.background_rejection_prob:
                 return crop, label
 
         assert last_crop is not None
@@ -226,6 +236,11 @@ class BinaryDataset(BaseTiffDataset):
         normalize: Optional[Literal["minmax", "std"]] = None,
         normalization_scope: Literal["dataset", "image"] = "dataset",
         dataset_stats: Optional[tuple[float, float]] = None,
+        background_rejection_prob: float = 0.9,
+        background_threshold_quantile: float = 0.05,
+        background_threshold_samples_per_image: int = 4,
+        background_threshold_max_images: Optional[int] = 50,
+        background_metrics: Optional[list[Literal["std", "entropy"]]] = None,
         return_label: bool = True,
     ) -> None:
         self.target_label = int(target_label)
@@ -248,6 +263,11 @@ class BinaryDataset(BaseTiffDataset):
             normalize=normalize,
             normalization_scope=normalization_scope,
             dataset_stats=dataset_stats,
+            background_rejection_prob=background_rejection_prob,
+            background_threshold_quantile=background_threshold_quantile,
+            background_threshold_samples_per_image=background_threshold_samples_per_image,
+            background_threshold_max_images=background_threshold_max_images,
+            background_metrics=background_metrics,
             return_label=return_label,
         )
         self._validate_binary_sampling_config()
@@ -263,7 +283,9 @@ class BinaryDataset(BaseTiffDataset):
             raise ValueError("BinaryDataset requires at least one target-class sample.")
         if not self.non_target_indices:
             raise ValueError("BinaryDataset requires at least one non-target sample.")
+        print("Computing background thresholds for BinaryDataset...")
         self.background_thresholds_by_label = self._compute_background_thresholds()
+        print(f"Computed background thresholds for {len(self.background_thresholds_by_label)} labels.")
 
     def _transform_label(self, label: int) -> int:
         return int(label == self.target_label)
@@ -381,9 +403,9 @@ class BinaryDataset(BaseTiffDataset):
             img_size=self.img_size,
             crop_size=self.augmentation_config.crop_size,
             random_crop=self.augmentation_config.random_crop,
-            metrics=self.augmentation_config.background_metrics,
-            quantile=self.augmentation_config.background_threshold_quantile,
-            samples_per_image=self.augmentation_config.background_threshold_samples_per_image,
-            max_images=self.augmentation_config.background_threshold_max_images,
+            metrics=self.background_metrics,
+            quantile=self.background_threshold_quantile,
+            samples_per_image=self.background_threshold_samples_per_image,
+            max_images=self.background_threshold_max_images,
             imreader=self.imreader,
         )
