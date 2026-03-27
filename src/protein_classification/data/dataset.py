@@ -15,6 +15,8 @@ from protein_classification.data.augmentations import (
     noise_augmentation,
 )
 from protein_classification.data.utils import (
+    compute_background_thresholds,
+    compute_background_score,
     crop_img,
     normalize_img,
     resize_img,
@@ -29,6 +31,8 @@ class BaseTiffDataset(Dataset):
     Each dataset item corresponds to one source image. The image is loaded on demand,
     optionally resized, and used to extract a stack of crops.
     """
+
+    _MAX_BACKGROUND_REJECTION_RETRIES = 10
 
     def __init__(
         self,
@@ -103,18 +107,58 @@ class BaseTiffDataset(Dataset):
 
         return torch.stack(crops), torch.tensor(labels, dtype=torch.long)
 
-    def _sample_single_crop(self, image: Tensor, label: int) -> tuple[Tensor, int]:
+    def _sample_single_crop(
+        self,
+        image: Tensor,
+        label: int,
+        source_label: Optional[int] = None,
+    ) -> tuple[Tensor, int]:
         """Extract a single crop from an image."""
         crop_size = self.augmentation_config.crop_size
         if crop_size is None:
             return image, label
 
-        crop = crop_img(
-            image,
-            crop_size,
-            self.augmentation_config.random_crop,
-        )
-        return crop, label
+        background_thresholds = getattr(self, "background_thresholds_by_label", None)
+        if (
+            source_label is None or
+            background_thresholds is None or
+            self.augmentation_config.background_rejection_prob <= 0.0
+        ):
+            crop = crop_img(
+                image,
+                crop_size,
+                self.augmentation_config.random_crop,
+            )
+            return crop, label
+
+        threshold = background_thresholds.get(int(source_label))
+        if threshold is None:
+            crop = crop_img(
+                image,
+                crop_size,
+                self.augmentation_config.random_crop,
+            )
+            return crop, label
+
+        last_crop: Optional[Tensor] = None
+        for _ in range(self._MAX_BACKGROUND_REJECTION_RETRIES):
+            crop = crop_img(
+                image,
+                crop_size,
+                self.augmentation_config.random_crop,
+            )
+            last_crop = crop
+            score = compute_background_score(
+                crop,
+                self.augmentation_config.background_metrics,
+            )
+            if score >= threshold:
+                return crop, label
+            if random.random() >= self.augmentation_config.background_rejection_prob:
+                return crop, label
+
+        assert last_crop is not None
+        return last_crop, label
 
     def _apply_per_crop_processing(self, crops: Tensor) -> Tensor:
         """Apply transforms and normalization independently to each crop."""
@@ -219,6 +263,7 @@ class BinaryDataset(BaseTiffDataset):
             raise ValueError("BinaryDataset requires at least one target-class sample.")
         if not self.non_target_indices:
             raise ValueError("BinaryDataset requires at least one non-target sample.")
+        self.background_thresholds_by_label = self._compute_background_thresholds()
 
     def _transform_label(self, label: int) -> int:
         return int(label == self.target_label)
@@ -259,14 +304,16 @@ class BinaryDataset(BaseTiffDataset):
         """Sample one positive crop from the target class."""
         idx = self._sample_index(self.target_indices)
         image = self._load_image(idx)
-        crop, _ = self._sample_single_crop(image, label=1)
+        source_label = int(self.inputs[idx][1])
+        crop, _ = self._sample_single_crop(image, label=1, source_label=source_label)
         return crop, 1
 
     def _sample_easy_negative_crop(self) -> tuple[Tensor, int]:
         """Sample one easy negative crop from a non-target class."""
         idx = self._sample_index(self.non_target_indices)
         image = self._load_image(idx)
-        crop, _ = self._sample_single_crop(image, label=0)
+        source_label = int(self.inputs[idx][1])
+        crop, _ = self._sample_single_crop(image, label=0, source_label=source_label)
         return crop, 0
 
     def _sample_inverted_negative_crop(self) -> tuple[Tensor, int]:
@@ -286,7 +333,8 @@ class BinaryDataset(BaseTiffDataset):
         for _ in range(num_sources):
             idx = self._sample_index(self.non_target_indices)
             image = self._load_image(idx)
-            aux_crop, _ = self._sample_single_crop(image, label=0)
+            source_label = int(self.inputs[idx][1])
+            aux_crop, _ = self._sample_single_crop(image, label=0, source_label=source_label)
             aux_crops.append(normalize_img(aux_crop, "minmax", "image"))
 
         alpha = random.uniform(*self.mixed_alpha_range)
@@ -322,3 +370,20 @@ class BinaryDataset(BaseTiffDataset):
         if self.return_label:
             return processed_crops, labels_tensor
         return processed_crops
+
+    def _compute_background_thresholds(self) -> dict[int, float]:
+        """Precompute per-original-label thresholds used for crop rejection."""
+        if self.augmentation_config.crop_size is None:
+            return {}
+
+        return compute_background_thresholds(
+            inputs=self.inputs,
+            img_size=self.img_size,
+            crop_size=self.augmentation_config.crop_size,
+            random_crop=self.augmentation_config.random_crop,
+            metrics=self.augmentation_config.background_metrics,
+            quantile=self.augmentation_config.background_threshold_quantile,
+            samples_per_image=self.augmentation_config.background_threshold_samples_per_image,
+            max_images=self.augmentation_config.background_threshold_max_images,
+            imreader=self.imreader,
+        )

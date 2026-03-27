@@ -35,6 +35,37 @@ class DataAugmentationConfig(BaseModel):
     """Whether to apply random cropping to the images. If `False`, center cropping is
     applied."""
 
+    background_rejection_prob: float = 1.0
+    """Probability of rejecting a low-signal crop during binary sampling."""
+
+    background_threshold_quantile: float = 0.1
+    """Quantile used to precompute per-label background thresholds."""
+
+    background_threshold_samples_per_image: int = 4
+    """Number of random crops per image used when estimating thresholds."""
+
+    background_threshold_max_images: Optional[int] = 50
+    """Optional cap on images used per dataset when estimating thresholds."""
+
+    background_metrics: list[Literal["std", "entropy"]] = ["std"]
+    """Metrics combined to score crop foreground signal for background rejection."""
+
+    @model_validator(mode='after')
+    def validate_background_config(self) -> Self:
+        """Validate background rejection settings."""
+        if not 0.0 <= self.background_rejection_prob <= 1.0:
+            raise ValueError("`background_rejection_prob` must be in [0, 1].")
+        if not 0.0 <= self.background_threshold_quantile <= 1.0:
+            raise ValueError("`background_threshold_quantile` must be in [0, 1].")
+        if self.background_threshold_samples_per_image < 1:
+            raise ValueError("`background_threshold_samples_per_image` must be >= 1.")
+        if (
+            self.background_threshold_max_images is not None and
+            self.background_threshold_max_images < 1
+        ):
+            raise ValueError("`background_threshold_max_images` must be >= 1.")
+        return self
+
 
 class DataConfig(BaseModel):
     """Configuration for data modules."""

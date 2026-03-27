@@ -1,4 +1,3 @@
-import random as rnd
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Literal, Optional, Sequence, Union
@@ -119,11 +118,15 @@ def crop_img(img: NDArray | Tensor, crop_size: int, random_crop: bool) -> NDArra
     return img[:, y:y + crop_size, x:x + crop_size]
 
 
-def compute_difficulty_score(
+def compute_background_score(
     image: Tensor,
     metrics: list[Literal["std", "entropy"]] = ["std"]
 ) -> float:
-    """Compute the difficulty score of an image as the combination of the specified metrics."""
+    """Compute the background score of an image as combination of the specified metrics.
+    
+    NOTE: large score indicates more signal, thus foreground crops.
+    """
+    # TODO: combination as simple addition is tricky...
     image = normalize_img(image, "minmax", "image")
     score = 0.0
     if "std" in metrics:
@@ -200,7 +203,7 @@ def get_difficulty_score_distribution(
     ):
         for _ in range(k):
             crop = crop_img(img, crop_size, random_crop)
-            difficulty_scores[label].append(compute_difficulty_score(crop, metrics))
+            difficulty_scores[label].append(compute_background_score(crop, metrics))
 
     difficulty_scores = {
         label: torch.tensor(scores, dtype=torch.float32)
@@ -257,7 +260,7 @@ def get_curriculum_learning_crops(
     found = False
     crop = crop_img(image, crop_size, random_crop=True)
     crops: list[Tensor] = [crop]
-    scores: list[float] = [compute_difficulty_score(crop, metrics)]
+    scores: list[float] = [compute_background_score(crop, metrics)]
     while not found and len(crops) < sampling_patience:
         # Sample quantile from Beta(α, 1)
         q = np.random.beta(alpha, 1.0)
@@ -270,7 +273,7 @@ def get_curriculum_learning_crops(
             found = True
         else:
             crops.append(crop_img(image, crop_size, random_crop=True))
-            scores.append(compute_difficulty_score(crops[-1], metrics))
+            scores.append(compute_background_score(crops[-1], metrics))
 
     if not found:
         crop = crops[np.argmax(scores)]   
@@ -350,7 +353,7 @@ def identify_background_crops(
         threshold = difficulty_distribution[10] # 10% quantile
         
     crop = crop_img(image, crop_size, random_crop=True)
-    score = compute_difficulty_score(crop, metrics)
+    score = compute_background_score(crop, metrics)
     if score < threshold:
         return crop, bg_label
     else:
@@ -377,7 +380,8 @@ def compute_background_thresholds(
 
     score_by_label: dict[int, list[float]] = defaultdict(list)
     if max_images is not None:
-        selected_inputs = list(rnd.shuffle(inputs)[:max_images])
+        idxs = np.random.sample(len(inputs), min(max_images, len(inputs)), replace=False)
+        selected_inputs = [inputs[i] for i in idxs]
     else:
         selected_inputs = list(inputs)
 
@@ -403,7 +407,7 @@ def compute_background_thresholds(
 
         for _ in range(samples_per_image):
             crop = crop_img(image_tensor, crop_size, random_crop)
-            score_by_label[int(label)].append(compute_difficulty_score(crop, metrics))
+            score_by_label[int(label)].append(compute_background_score(crop, metrics))
 
     return {
         label: float(np.quantile(scores, quantile))
