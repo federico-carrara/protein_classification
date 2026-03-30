@@ -1,13 +1,18 @@
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Discriminator
 
-from protein_classification.config.architectures import DenseNetConfig
+from protein_classification.config.architectures import DenseNetConfig, ResNetConfig
 from protein_classification.config.losses import LossConfig
 from protein_classification.config.training import TrainingConfig
 
 PathLike = Path | str
+
+ArchitectureConfig = Annotated[
+    Union[DenseNetConfig, ResNetConfig],
+    Discriminator("model_type"),
+]
 
 
 class AlgorithmConfig(BaseModel):
@@ -19,8 +24,8 @@ class AlgorithmConfig(BaseModel):
         extra="allow", validate_assignment=True, validate_default=True
     )
 
-    architecture_config: DenseNetConfig
-    """Configuration for the DenseNet model architecture."""
+    architecture_config: ArchitectureConfig
+    """Configuration for the model architecture (DenseNet or ResNet)."""
     
     loss_config: LossConfig
     """Configuration for the loss function used in training."""

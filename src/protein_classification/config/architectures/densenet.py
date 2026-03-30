@@ -34,7 +34,10 @@ class DenseNetConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid", validate_assignment=True, validate_default=True
     )
-    
+
+    model_type: Literal["densenet"] = "densenet"
+    """Discriminator field used to distinguish from ResNetConfig."""
+
     architecture: Literal[
         "custom", "densenet121", "densenet161", "densenet169", "densenet201"
     ] = "custom"

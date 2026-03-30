@@ -5,14 +5,25 @@ from torchmetrics.classification import MulticlassF1Score
 
 from protein_classification.config import AlgorithmConfig
 from protein_classification.config.losses import loss_factory
-from protein_classification.model import DenseNet
+from protein_classification.model.densenet import DenseNet
+from protein_classification.model.resnet import ResNet
+from protein_classification.config.architectures import DenseNetConfig, ResNetConfig
+
+
+def _build_model(config):
+    """Instantiate the right backbone from an architecture config."""
+    if isinstance(config, DenseNetConfig):
+        return DenseNet(**config.model_dump())
+    if isinstance(config, ResNetConfig):
+        return ResNet(**config.model_dump())
+    raise ValueError(f"Unknown architecture config type: {type(config)}")
 
 
 class BioStructClassifier(pl.LightningModule):
     def __init__(self, config: AlgorithmConfig) -> None:
         super().__init__()
         self.config = config
-        self.model = DenseNet(**config.architecture_config.model_dump())
+        self.model = _build_model(config.architecture_config)
         self.loss_fn = loss_factory(config.loss_config)
         
         # metrics
