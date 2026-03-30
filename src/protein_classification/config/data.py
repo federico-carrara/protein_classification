@@ -95,7 +95,7 @@ class DataConfig(BaseModel):
     background_threshold_max_images: Optional[int] = 50
     """Optional cap on images used per dataset when estimating thresholds."""
 
-    background_metrics: list[Literal["std", "entropy"]] = ["std"]
+    background_metrics: list[Literal["std", "entropy"]] = ["entropy"]
     """Metrics combined to score crop foreground signal for background rejection."""
     
     train_augmentation_config: Optional[DataAugmentationConfig] = None
