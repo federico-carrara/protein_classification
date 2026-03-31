@@ -34,6 +34,7 @@ class BaseTiffDataset(Dataset):
 
     _MAX_BACKGROUND_REJECTION_RETRIES = 10
 
+    # TODO: cleanup args by simply passing the data config
     def __init__(
         self,
         inputs: Sequence[tuple[PathLike, int]],
@@ -130,7 +131,9 @@ class BaseTiffDataset(Dataset):
         if crop_size is None:
             return image, label
 
-        background_thresholds = getattr(self, "background_thresholds_by_label", None)
+        background_thresholds: dict[int, float] = getattr(
+            self, "background_thresholds_by_label", None
+        )
         if (
             source_label is None or
             background_thresholds is None or
@@ -221,6 +224,7 @@ class MultiClassDataset(BaseTiffDataset):
 class BinaryDataset(BaseTiffDataset):
     """Lazy TIFF dataset for one-vs-rest binary classification."""
 
+    # TODO: cleanup args by simply passing the data config
     def __init__(
         self,
         inputs: Sequence[tuple[PathLike, int]],
