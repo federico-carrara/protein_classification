@@ -43,71 +43,112 @@ parser = argparse.ArgumentParser(
 # --- dataset ---
 ds = parser.add_argument_group("dataset")
 ds.add_argument("--dataset", type=str, default="CellAtlas", choices=["CellAtlas", "BioSR"])
-ds.add_argument("--data_dir", type=str, default=None,
-                help="Path to dataset root. Defaults per dataset if omitted.")
-ds.add_argument("--labels", type=str, nargs="+", default=["Mitochondria"],
-                help="Protein labels to include (determines the full label set).")
-ds.add_argument("--stats_path", type=str, default=None,
-                help="Path to dataset stats JSON. Defaults per dataset if omitted.")
-ds.add_argument("--img_size", type=int, default=None,
-                help="Image resize dimension. Defaults per dataset if omitted.")
-ds.add_argument("--bit_depth", type=int, default=None,
-                help="Input image bit depth (8 or 16). Defaults per dataset if omitted.")
+ds.add_argument(
+    "--data_dir", type=str, default=None,
+    help="Path to dataset root. Defaults per dataset if omitted."
+)
+ds.add_argument(
+    "--labels", type=str, nargs="+", default=["Mitochondria"],
+    help="Protein labels to include (determines the full label set)."
+)
+ds.add_argument(
+    "--stats_path", type=str, default=None,
+    help="Path to dataset stats JSON. Defaults per dataset if omitted."
+)
+ds.add_argument(
+    "--img_size", type=int, default=None,
+    help="Image resize dimension. Defaults per dataset if omitted."
+)
+ds.add_argument(
+    "--bit_depth", type=int, default=None,
+    help="Input image bit depth (8 or 16). Defaults per dataset if omitted."
+)
 
 # --- binary target ---
 bt = parser.add_argument_group("binary target")
-bt.add_argument("--target", type=str, required=True,
-                help="Target label name for the positive class (e.g. 'Mitochondria').")
-bt.add_argument("--pos_prob", type=float, default=0.5,
-                help="Probability of sampling a positive crop per draw.")
-bt.add_argument("--neg_families", type=str, nargs="+",
-                default=["trivial", "mixed", "inverted"],
-                help="Negative families to enable.")
-bt.add_argument("--neg_weights", type=float, nargs="+",
-                default=[1.0, 1.0, 1.0],
-                help="Weights for each negative family (same order as --neg_families).")
+bt.add_argument(
+    "--target", type=str, required=True,
+    help="Target label name for the positive class (e.g. 'Mitochondria')."
+)
+bt.add_argument(
+    "--pos_prob", type=float, default=0.5,
+    help="Probability of sampling a positive crop per draw."
+)
+bt.add_argument(
+    "--neg_families", type=str, nargs="+",
+    default=["trivial", "mixed", "inverted"],
+    help="Negative families to enable."
+)
+bt.add_argument(
+    "--neg_weights", type=float, nargs="+",
+    default=[1.0, 1.0, 1.0],
+    help="Weights for each negative family (same order as --neg_families)."
+)
 
 # --- augmentation ---
 ag = parser.add_argument_group("augmentation")
-ag.add_argument("--aug", type=str, default=None,
-                choices=["geometric", "intensity", "noise", "all"],
-                help="Augmentation applied at train time.")
-ag.add_argument("--crop_size", type=int, default=None,
-                help="Crop size in pixels. Defaults to img_size (no cropping).")
-ag.add_argument("--num_crops", type=int, required=True,
-                help="Number of crops sampled per source image.")
+ag.add_argument(
+    "--aug", type=str, default=None,
+    choices=["geometric", "intensity", "noise", "all"],
+    help="Augmentation applied at train time."
+)
+ag.add_argument(
+    "--crop_size", type=int, default=None,
+    help="Crop size in pixels. Defaults to img_size (no cropping)."
+)
+ag.add_argument(
+    "--num_crops", type=int, required=True,
+    help="Number of crops sampled per source image."
+)
 
 # --- architecture ---
 ar = parser.add_argument_group("architecture")
-ar.add_argument("--arch", type=str, default="resnet18",
-                choices=["densenet121", "densenet161", "densenet169", "densenet201",
-                         "resnet18", "resnet34"],
-                help="Model architecture.")
-ar.add_argument("--dropout_p", type=float, default=0.1,
-                help="Dropout probability (0 disables).")
+ar.add_argument(
+    "--arch", type=str, default="resnet18",
+    choices=[
+        "densenet121",
+        "densenet161",
+        "densenet169",
+        "densenet201",
+        "resnet18",
+        "resnet34"
+    ],
+    help="Model architecture."
+)
+ar.add_argument(
+    "--dropout_p", type=float, default=0.1,
+    help="Dropout probability (0 disables)."
+)
 
 # --- loss ---
-parser.add_argument("--loss", type=str, default="multiclass_focal_loss",
-                    choices=["multiclass_focal_loss", "binary_focal_loss"])
+parser.add_argument(
+    "--loss", type=str, default="cross_entropy",
+    choices=["cross_entropy", "focal"],
+)
 
 # --- training ---
 tr = parser.add_argument_group("training")
 tr.add_argument("--batch_size", type=int, default=32)
-tr.add_argument("--acc_batches", type=int, default=1,
-                help="Gradient accumulation steps.")
-tr.add_argument("--lr", type=float, default=3e-4)
-tr.add_argument("--max_epochs", type=int, default=100)
-tr.add_argument("--grad_clip", type=float, default=1.0)
+tr.add_argument(
+    "--acc_batches", type=int, default=1,
+    help="Gradient accumulation steps."
+)
+tr.add_argument("--lr", type=float, default=1e-3)
+tr.add_argument("--epochs", type=int, default=100)
 tr.add_argument("--normalize", type=str, default="std", choices=["std", "minmax"])
 tr.add_argument("--num_workers", type=int, default=3)
 
 # --- logging ---
 lg = parser.add_argument_group("logging")
 lg.add_argument("--log", action="store_true", help="Enable Weights & Biases logging.")
-lg.add_argument("--log_base_dir", type=str,
-                default="/group/jug/federico/classification_training")
-lg.add_argument("--debug", action="store_true",
-                help="Limit data to 200 samples for fast iteration.")
+lg.add_argument(
+    "--log_base_dir", type=str,
+    default="/group/jug/federico/classification_training"
+)
+lg.add_argument(
+    "--debug", action="store_true",
+    help="Limit data to 200 samples for fast iteration."
+)
 
 args = parser.parse_args()
 
@@ -163,7 +204,7 @@ data_config = DataConfig(
     dataset_stats=(dataset_stats["mean"], dataset_stats["std"]),
 )
 
-# --- model config (always 2 classes for binary) ---
+# --- model config ---
 if args.arch.startswith("resnet"):
     model_config = ResNetConfig(
         architecture=args.arch,
@@ -178,18 +219,23 @@ else:
         dropout_p=args.dropout_p,
     )
 
-loss_config = LossConfig(loss_type=args.loss)
+if args.loss == "focal":
+    loss_name = "binary_focal_loss"
+elif args.loss == "cross_entropy":
+    loss_name = "binary_cross_entropy"
+else:
+    raise ValueError(f"Unsupported loss function: {args.loss}")
 
-arch_name = args.arch.replace("dense", "Dense").replace("net", "Net")
-exp_name = f"{arch_name}_{args.dataset}_binary_{args.target}"
+loss_config = LossConfig(loss_type=loss_name)
 
+exp_name = f"{args.arch}_{args.dataset}_{args.target}_binary"
 log_dir = get_log_dir(args.log_base_dir, exp_name) if args.log else None
 
 training_config = TrainingConfig(
     max_epochs=args.max_epochs,
     lr=args.lr,
     batch_size=args.batch_size,
-    gradient_clip_val=args.grad_clip,
+    gradient_clip_val=1.0,
     gradient_clip_algorithm="norm",
     accumulate_grad_batches=args.acc_batches,
 )
@@ -210,7 +256,7 @@ if args.dataset == "CellAtlas":
     )
 elif args.dataset == "BioSR":
     input_data, curr_labels = get_biosr_filepaths_and_labels(
-        data_dir=DATA_DIR, protein_labels=args.labels,
+        data_dir=DATA_DIR, labels=args.labels,
     )
 
 if args.target not in curr_labels:
@@ -218,7 +264,7 @@ if args.target not in curr_labels:
 target_label = curr_labels[args.target]
 
 if args.debug:
-    input_data = input_data[:200]
+    input_data = input_data[:20]
 
 train_data, _ = train_test_split(input_data, train_ratio=0.9, deterministic=True)
 train_data, val_data = train_test_split(train_data, train_ratio=0.9, deterministic=False)
@@ -235,7 +281,8 @@ print(f"Labels             : {curr_labels}")
 print("------------------------------------------\n")
 
 train_dataset = BinaryDataset(
-    inputs=train_data, split="train",
+    inputs=train_data,
+    split="train",
     augmentation_config=train_aug_config,
     target_label=target_label,
     positive_probability=args.pos_prob,
@@ -249,7 +296,8 @@ train_dataset = BinaryDataset(
     return_label=True,
 )
 val_dataset = BinaryDataset(
-    inputs=val_data, split="test",
+    inputs=val_data, 
+    split="test",
     augmentation_config=val_aug_config,
     target_label=target_label,
     positive_probability=args.pos_prob,
