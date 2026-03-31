@@ -16,14 +16,14 @@ def _check_valid_tiff(fpath: PathLike) -> bool:
 
 def get_biosr_filepaths_and_labels(
     data_dir: PathLike,
-    protein_labels: Sequence[str],
+    labels: Sequence[str],
 ) -> tuple[list[tuple[Path, int]], dict[str, int]]:
     """Get the file paths and labels for the BioSR dataset."""
-    curr_labels_dict = {label: i for i, label in enumerate(protein_labels)}
+    curr_labels_dict = {label: i for i, label in enumerate(labels)}
     
     out_fpaths: list[str] = []
     out_labels: list[int] = []
-    for label in protein_labels:
+    for label in labels:
         label_dir = Path(data_dir) / label
         if not label_dir.exists():
             continue

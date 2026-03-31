@@ -11,8 +11,9 @@ from pydantic import BaseModel
 from pytorch_lightning.loggers import WandbLogger
 
 from protein_classification.config import (
-    AlgorithmConfig, DataConfig, DenseNetConfig, LossConfig, TrainingConfig
+    AlgorithmConfig, DataConfig, LossConfig, TrainingConfig
 )
+from protein_classification.config.architectures import DenseNetConfig
 
 ConfigLike = Union[BaseModel, AlgorithmConfig, DataConfig, DenseNetConfig, LossConfig, TrainingConfig]
 PathLike = Union[Path, str]
