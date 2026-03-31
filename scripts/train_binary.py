@@ -208,13 +208,13 @@ data_config = DataConfig(
 if args.arch.startswith("resnet"):
     model_config = ResNetConfig(
         architecture=args.arch,
-        num_classes=2,
+        num_classes=1,
         dropout_p=args.dropout_p,
     )
 else:
     model_config = DenseNetConfig(
         architecture=args.arch,
-        num_classes=2,
+        num_classes=1,
         dropout_block=args.dropout_p > 0,
         dropout_p=args.dropout_p,
     )
@@ -222,7 +222,7 @@ else:
 if args.loss == "focal":
     loss_name = "binary_focal_loss"
 elif args.loss == "cross_entropy":
-    loss_name = "binary_cross_entropy"
+    loss_name = "binary_bce_loss"
 else:
     raise ValueError(f"Unsupported loss function: {args.loss}")
 

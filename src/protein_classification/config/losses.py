@@ -3,13 +3,16 @@ from typing import Union
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from torch import nn
+
 from protein_classification.losses import BinaryFocalLoss, MulticlassFocalLoss
-AnyLoss = Union[BinaryFocalLoss, MulticlassFocalLoss]
+AnyLoss = Union[BinaryFocalLoss, MulticlassFocalLoss, nn.BCEWithLogitsLoss]
 
 
 class SupportedLosses(Enum):
     """Enum for supported loss functions."""
     BINARY_FOCAL_LOSS = "binary_focal_loss"
+    BINARY_BCE_LOSS = "binary_bce_loss"
     MULTICLASS_FOCAL_LOSS = "multiclass_focal_loss"
 
 
@@ -39,6 +42,8 @@ def loss_factory(config: LossConfig) -> AnyLoss:
     """Factory function to create loss instances based on the provided name."""
     if config.loss_type == SupportedLosses.BINARY_FOCAL_LOSS:
         return BinaryFocalLoss(**config.model_dump())
+    elif config.loss_type == SupportedLosses.BINARY_BCE_LOSS:
+        return nn.BCEWithLogitsLoss()
     elif config.loss_type == SupportedLosses.MULTICLASS_FOCAL_LOSS:
         return MulticlassFocalLoss(**config.model_dump())
     else:
