@@ -1,6 +1,5 @@
 import argparse
 import os
-import shutil
 import socket
 
 import torch
@@ -13,27 +12,29 @@ from protein_classification.config import (
     AlgorithmConfig, DataAugmentationConfig, DataConfig,
     DenseNetConfig, LossConfig, TrainingConfig
 )
-from protein_classification.data import InMemoryDataset, ZarrDataset
+from protein_classification.data import MultiClassDataset
 from protein_classification.data.biosr import get_biosr_filepaths_and_labels
-from protein_classification.data.preprocessing import ZarrPreprocessor
-from protein_classification.data.utils import train_test_split, collate_test_time_crops
+from protein_classification.data.utils import (
+    collate_multi_crop_batches,
+    compute_background_thresholds,
+    train_test_split,
+)
 from protein_classification.model import BioStructClassifier
 from protein_classification.utils.callbacks import get_callbacks
 from protein_classification.utils.io import load_dataset_stats, get_log_dir, log_configs
 
 parser = argparse.ArgumentParser(description="Train a protein classification model.")
 parser.add_argument("--log", action="store_true", help="Enable logging with Weights & Biases.")
-parser.add_argument("--in_memory", action="store_true", help="Load the dataset in memory, else use Zarr preprocessing.")
-parser.add_argument("--aug", type=str, default=None, choices=["geometric", "noise", "all"])
+parser.add_argument("--aug", type=str, default=None, choices=["geometric", "intensity", "noise", "all"])
 parser.add_argument("--batch_size", type=int, default=32, help="Batch size for training.")
 parser.add_argument("--acc_batches", type=int, default=1, help="Number of batches to accumulate gradients over.")
 parser.add_argument("--img_size", type=int, default=1004, help="Size of the input images.")
 parser.add_argument("--crop_size", type=int, default=1004, help="Crop size for the input images.")
+parser.add_argument("--num_crops_per_image", type=int, required=True, help="Number of crops to sample from each loaded image.")
 parser.add_argument("--debug", action="store_true", help="Enable debug mode for faster training with fewer samples.")
 args = parser.parse_args()
 
 LOGGING = args.log
-IN_MEMORY = args.in_memory
 torch.set_float32_matmul_precision('medium')
 
 
@@ -108,60 +109,42 @@ print(f"Number training samples: {len(train_input_data)}")
 print(f"Number validation samples: {len(val_input_data)}")
 print(f"Labels: {curr_labels}")
 print("----------------------------------------\n")
-if IN_MEMORY:
-    train_dataset = InMemoryDataset(
+if train_aug_config.strategy == "background":
+    train_aug_config.bg_thresholds = compute_background_thresholds(
         inputs=train_input_data,
-        split="train",
-        return_label=True,
         img_size=data_config.img_size,
-        augmentation_config=data_config.train_augmentation_config,
-        bit_depth=data_config.bit_depth,
-        normalize=data_config.normalize,
-        dataset_stats=data_config.dataset_stats,
+        crop_size=train_aug_config.crop_size,
+        random_crop=train_aug_config.random_crop,
+        metrics=train_aug_config.metrics,
+        quantile=0.1,
+        samples_per_image=4,
+        max_images=128 if args.debug else None,
+        imreader=data_config.imreader,
     )
-    val_dataset = InMemoryDataset(
-        inputs=val_input_data,
-        split="test",
-        return_label=True,
-        img_size=data_config.img_size,
-        augmentation_config=data_config.val_augmentation_config,
-        bit_depth=data_config.bit_depth,
-        normalize=data_config.normalize,
-        dataset_stats=data_config.dataset_stats,
-    )
-else:
-    train_preprocessor = ZarrPreprocessor(
-        inputs=train_input_data,
-        output_path="./train_preprocessed_data.zarr",
-        img_size=data_config.img_size,
-        normalize=data_config.normalize,
-        dataset_stats=data_config.dataset_stats,
-        chunk_size=16,
-    )
-    val_preprocessor = ZarrPreprocessor(
-        inputs=val_input_data,
-        output_path="./val_preprocessed_data.zarr",
-        img_size=data_config.img_size,
-        normalize=data_config.normalize,
-        dataset_stats=data_config.dataset_stats,
-        chunk_size=16,
-    )
-    train_zarr_path = train_preprocessor.run()
-    val_zarr_path = val_preprocessor.run()
-    train_dataset = ZarrDataset(
-        path_to_zarr=train_zarr_path,
-        split="train",
-        crop_size=data_config.crop_size,
-        random_crop=data_config.random_crop,
-        # transform=transforms_factory(train_data_config.transform),
-    )
-    val_dataset = ZarrDataset(
-        path_to_zarr=val_zarr_path,
-        split="test",
-        crop_size=  data_config.crop_size,
-        random_crop=False,  # No random cropping for validation
-        transform=None,  # No transformation for validation
-    )
+train_dataset = MultiClassDataset(
+    inputs=train_input_data,
+    split="train",
+    return_label=True,
+    img_size=data_config.img_size,
+    augmentation_config=data_config.train_augmentation_config,
+    num_crops_per_image=args.num_crops_per_image,
+    bit_depth=data_config.bit_depth,
+    normalize=data_config.normalize,
+    normalization_scope=data_config.normalization_scope,
+    dataset_stats=data_config.dataset_stats,
+)
+val_dataset = MultiClassDataset(
+    inputs=val_input_data,
+    split="test",
+    return_label=True,
+    img_size=data_config.img_size,
+    augmentation_config=data_config.val_augmentation_config,
+    num_crops_per_image=args.num_crops_per_image,
+    bit_depth=data_config.bit_depth,
+    normalize=data_config.normalize,
+    normalization_scope=data_config.normalization_scope,
+    dataset_stats=data_config.dataset_stats,
+)
 train_dloader = DataLoader(
     train_dataset,
     batch_size=training_config.batch_size,
@@ -169,7 +152,7 @@ train_dloader = DataLoader(
     num_workers=3,
     pin_memory=True,
     drop_last=True,
-    collate_fn=collate_test_time_crops if train_aug_config.strategy == "overlap" else None,
+    collate_fn=collate_multi_crop_batches,
 )
 val_dloader = DataLoader(
     val_dataset,
@@ -178,7 +161,7 @@ val_dloader = DataLoader(
     num_workers=3,
     pin_memory=True,
     drop_last=False,
-    collate_fn=collate_test_time_crops if val_aug_config.strategy == "overlap" else None,
+    collate_fn=collate_multi_crop_batches,
 )
 
 # --- Initialize Logger + Log configs ---
@@ -219,8 +202,3 @@ trainer = Trainer(
 )
 trainer.fit(model, train_dloader, val_dloader)
 wandb.finish()
-
-# Clean up Zarr file after training
-if not IN_MEMORY:
-    shutil.rmtree(train_zarr_path, ignore_errors=True)
-    shutil.rmtree(val_zarr_path, ignore_errors=True)

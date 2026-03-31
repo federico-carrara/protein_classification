@@ -6,18 +6,16 @@ from pytorch_lightning import Trainer
 from torch.utils.data import DataLoader
 
 from protein_classification.config import AlgorithmConfig, DataConfig, DataAugmentationConfig
-from protein_classification.data import InMemoryDataset, ZarrDataset
+from protein_classification.data import MultiClassDataset
 from protein_classification.data.biosr import get_biosr_filepaths_and_labels
 from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_labels
-from protein_classification.data.preprocessing import ZarrPreprocessor
-from protein_classification.data.utils import train_test_split, collate_test_time_crops
+from protein_classification.data.utils import collate_multi_crop_batches, train_test_split
 from protein_classification.model import BioStructClassifier
 from protein_classification.utils.evaluation import compute_classification_metrics
 from protein_classification.utils.io import load_config, load_checkpoint
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--ckpt_dir", type=str, required=True)
-parser.add_argument("--in_memory", action="store_true", help="Load the dataset in memory, else use Zarr preprocessing.")
 parser.add_argument("--dataset", type=str, default="CellAtlas", choices=["CellAtlas", "BioSR"], help="Dataset to evaluate.")
 parser.add_argument("--tta", action="store_true", help="Enable test time augmentation (TTA) with overlapping crops.")
 parser.add_argument("--debug", action="store_true", help="Enable debug mode for faster evaluation with fewer samples.")
@@ -65,34 +63,18 @@ print("--------------Dataset Info--------------")
 print(f"Number test samples: {len(test_input_data)}")
 print(f"Labels: {curr_labels}")
 print("----------------------------------------\n")
-if args.in_memory:
-    test_dataset = InMemoryDataset(
-        inputs=test_input_data,
-        split="test",
-        return_label=True,
-        img_size=data_config.img_size,
-        augmentation_config=data_config.test_augmentation_config,
-        bit_depth=data_config.bit_depth,
-        normalize=data_config.normalize,
-        dataset_stats=data_config.dataset_stats,
-    )
-else:
-    test_preprocessor = ZarrPreprocessor(
-        inputs=test_input_data,
-        output_path="./test_preprocessed_data.zarr",
-        img_size=data_config.img_size,
-        normalize=data_config.normalize,
-        dataset_stats=data_config.dataset_stats,
-        chunk_size=16,
-    )
-    test_zarr_path = test_preprocessor.run()
-    test_dataset = ZarrDataset(
-        path_to_zarr=test_zarr_path,
-        split="test",
-        crop_size=data_config.test_augmentation_config.crop_size,
-        random_crop=data_config.test_augmentation_config.random_crop,
-        transform=data_config.test_augmentation_config.transform,
-    )
+test_dataset = MultiClassDataset(
+    inputs=test_input_data,
+    split="test",
+    return_label=True,
+    img_size=data_config.img_size,
+    augmentation_config=data_config.test_augmentation_config,
+    num_crops_per_image=1,
+    bit_depth=data_config.bit_depth,
+    normalize=data_config.normalize,
+    normalization_scope=data_config.normalization_scope,
+    dataset_stats=data_config.dataset_stats,
+)
 test_dloader = DataLoader(
     test_dataset,
     batch_size=algo_config.training_config.batch_size,
@@ -100,10 +82,7 @@ test_dloader = DataLoader(
     num_workers=3,
     pin_memory=True,
     drop_last=False,
-    collate_fn=(
-        collate_test_time_crops 
-        if data_config.test_augmentation_config.strategy == "overlap" else None
-    ),
+    collate_fn=collate_multi_crop_batches,
 )
 
 # --- Setup Model & load checkpoint ---

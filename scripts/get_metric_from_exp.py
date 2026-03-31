@@ -3,9 +3,9 @@ import os
 from typing import Any
 
 
-exp_ids = tuple(range(1, 15)) + tuple(range(17, 41))
-ckpt_dir = "/group/jug/federico/classification_training/2507/DenseNet121_4Cl_Mitochondria/"
-metric = "accuracy"
+exp_ids = tuple(range(23, 41))
+ckpt_dir = "/group/jug/federico/classification_training/2507/DenseNet121_CellAtlas_4Cl_Mitochondria/"
+metric = "confusion_matrix"
 metric_type = "standard"
 
 def get_metric_from_experiment(
