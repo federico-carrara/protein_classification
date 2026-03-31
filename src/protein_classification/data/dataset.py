@@ -249,7 +249,7 @@ class BinaryDataset(BaseTiffDataset):
         self.target_label = int(target_label)
         self.positive_probability = float(positive_probability)
         self.negative_family_weights = negative_family_weights or {
-            "easy": 1.0,
+            "trivial": 1.0,
             "mixed": 1.0,
             "inverted": 1.0,
         }
@@ -296,7 +296,7 @@ class BinaryDataset(BaseTiffDataset):
 
     def _validate_binary_sampling_config(self) -> None:
         """Validate binary negative-sampling configuration."""
-        valid_families = {"easy", "mixed", "inverted"}
+        valid_families = {"trivial", "mixed", "inverted"}
         if not 0.0 <= self.positive_probability <= 1.0:
             raise ValueError("`positive_probability` must be in [0, 1].")
         if self.mixed_num_sources < 2:
@@ -334,8 +334,8 @@ class BinaryDataset(BaseTiffDataset):
         crop, _ = self._sample_single_crop(image, label=1, source_label=source_label)
         return crop, 1
 
-    def _sample_easy_negative_crop(self) -> tuple[Tensor, int]:
-        """Sample one easy negative crop from a non-target class."""
+    def _sample_trivial_negative_crop(self) -> tuple[Tensor, int]:
+        """Sample one trivial negative crop from a non-target class."""
         idx = self._sample_index(self.non_target_indices)
         image = self._load_image(idx)
         source_label = int(self.inputs[idx][1])
@@ -344,6 +344,9 @@ class BinaryDataset(BaseTiffDataset):
 
     def _sample_inverted_negative_crop(self) -> tuple[Tensor, int]:
         """Sample one inverted negative crop from the target class."""
+        # TODO: consider other classes for inversion, not the target class
+        # indeed, the subtracted signal is usually the one coming from other classes,
+        # not the target class itself
         crop, _ = self._sample_positive_crop()
         crop = normalize_img(crop, "minmax", "image")
         crop = 1.0 - crop
@@ -374,8 +377,8 @@ class BinaryDataset(BaseTiffDataset):
             return self._sample_positive_crop()
 
         family = self._sample_negative_family()
-        if family == "easy":
-            return self._sample_easy_negative_crop()
+        if family == "trivial":
+            return self._sample_trivial_negative_crop()
         if family == "mixed":
             return self._sample_mixed_negative_crop()
         if family == "inverted":
