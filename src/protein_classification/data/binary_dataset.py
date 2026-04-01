@@ -102,12 +102,11 @@ class BinaryDataset(Dataset):
             raise ValueError("BinaryDataset requires at least one target-class sample.")
         if not self.non_target_indices:
             raise ValueError("BinaryDataset requires at least one non-target sample.")
-        print("Computing background thresholds for BinaryDataset...")
+
         if background_threshold_by_label is not None:
             self.background_thresholds_by_label = background_threshold_by_label
         else:
             self.background_thresholds_by_label = self._compute_background_thresholds()
-        print(f"Computed background thresholds for {len(self.background_thresholds_by_label)} labels.")
 
     def _transform_label(self, label: int) -> int:
         return int(label == self.target_label)
