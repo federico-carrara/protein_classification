@@ -337,6 +337,7 @@ train_loader = DataLoader(
     pin_memory=True,
     drop_last=True,
     collate_fn=collate_multi_crop_batches,
+    prefetch_factor=4,
 )
 val_loader = DataLoader(
     val_dataset,
@@ -346,6 +347,7 @@ val_loader = DataLoader(
     pin_memory=True,
     drop_last=False,
     collate_fn=collate_multi_crop_batches,
+    prefetch_factor=4,
 )
 
 # ── logger ───────────────────────────────────────────────────────────────────
