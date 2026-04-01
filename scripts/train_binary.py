@@ -73,7 +73,7 @@ ds.add_argument(
     help="Crop size in pixels. Defaults to img_size (no cropping)."
 )
 ds.add_argument(
-    "--num_crops", type=int, default=4,
+    "--num-crops", type=int, default=8,
     help="Number of crops sampled per source image."
 )
 
@@ -94,7 +94,7 @@ bt.add_argument(
 )
 bt.add_argument(
     "--neg-weights", type=float, nargs="+",
-    default=[1.0, 1.0, 1.0],
+    default=None,
     help="Weights for each negative family (same order as --neg_families)."
 )
 
@@ -149,9 +149,13 @@ lg.add_argument(
 
 args = parser.parse_args()
 
-if len(args.neg_families) != len(args.neg_weights):
-    parser.error("--neg_families and --neg_weights must have the same length.")
-negative_family_weights = dict(zip(args.neg_families, args.neg_weights))
+if args.neg_weights is None:
+    neg_weights = [1.0] * len(args.neg_families)
+else:
+    if len(args.neg_families) != len(args.neg_weights):
+        parser.error("--neg_families and --neg_weights must have the same length.")
+    neg_weights = args.neg_weights
+negative_family_weights = dict(zip(args.neg_families, neg_weights))
 
 # ── dataset-specific defaults ────────────────────────────────────────────────
 
@@ -237,10 +241,17 @@ if args.log:
 else:
     log_dir = None
 
+# NOTE: to get an effective batch size of B with N crops 
+# per image, we need to set the effective batch size to B/N.
+# Indeed, in this way the `__getitem__` will be called B/N
+# times, and each time it will return N crops from the same
+# image, which will be collated together by the `collate_fn`
+# to form an actual batch of size B.
+dloader_batch_size = args.batch_size / args.num_crops
 training_config = TrainingConfig(
     max_epochs=args.epochs,
     lr=args.lr,
-    batch_size=args.batch_size,
+    batch_size=dloader_batch_size,
     gradient_clip_val=1.0,
     gradient_clip_algorithm="norm",
     accumulate_grad_batches=args.acc_batches,
@@ -315,7 +326,7 @@ val_dataset = BinaryDataset(
     normalization_scope=data_config.normalization_scope,
     dataset_stats=data_config.dataset_stats,
     return_label=True,
-    background_threshold_by_label=train_dataset.background_threshold_by_label
+    background_threshold_by_label=train_dataset.background_thresholds_by_label
 )
 
 train_loader = DataLoader(
@@ -369,12 +380,12 @@ trainer = Trainer(
     callbacks=callbacks,
     enable_progress_bar=True,
     enable_model_summary=True,
-    enable_checkpointing=True,
     precision=training_config.precision,
     gradient_clip_algorithm=training_config.gradient_clip_algorithm,
     gradient_clip_val=training_config.gradient_clip_val,
     accumulate_grad_batches=training_config.accumulate_grad_batches,
     log_every_n_steps=10,
+    num_sanity_val_steps=0,
 )
 trainer.fit(model, train_loader, val_loader)
 
