@@ -262,22 +262,6 @@ class BinaryDataset(Dataset):
             return self._make_mixed_negative_crop(recipe.source_indices, recipe.alpha)
         raise ValueError(f"Unknown family: {recipe.family}")
 
-    def __getitem__(self, idx: int) -> Union[Tensor, tuple[Tensor, Tensor]]:
-        recipes = self._plan[idx]
-        crops: list[Tensor] = []
-        labels: list[int] = []
-        for recipe in recipes:
-            crop, label = self._execute_recipe(recipe)
-            crops.append(crop)
-            labels.append(label)
-
-        processed_crops = self._apply_per_crop_processing(torch.stack(crops))
-        labels_tensor = torch.tensor(labels, dtype=torch.long)
-
-        if self.return_label:
-            return processed_crops, labels_tensor
-        return processed_crops
-
     def _build_epoch_plan(self) -> list[list[CropRecipe]]:
         """Build a deterministic sampling plan for the current epoch.
 
@@ -376,5 +360,21 @@ class BinaryDataset(Dataset):
         self._epoch = epoch
         self._plan = self._build_epoch_plan()
 
+    def __getitem__(self, idx: int) -> Union[Tensor, tuple[Tensor, Tensor]]:
+        recipes = self._plan[idx]
+        crops: list[Tensor] = []
+        labels: list[int] = []
+        for recipe in recipes:
+            crop, label = self._execute_recipe(recipe)
+            crops.append(crop)
+            labels.append(label)
+
+        processed_crops = self._apply_per_crop_processing(torch.stack(crops))
+        labels_tensor = torch.tensor(labels, dtype=torch.long)
+
+        if self.return_label:
+            return processed_crops, labels_tensor
+        return processed_crops
+    
     def __len__(self) -> int:
         return len(self._plan)
