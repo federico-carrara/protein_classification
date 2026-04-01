@@ -140,7 +140,7 @@ lg = parser.add_argument_group("logging")
 lg.add_argument("--log", action="store_true", help="Enable Weights & Biases logging.")
 lg.add_argument(
     "--log-base-dir", type=str,
-    default="/group/jug/federico/classification_training"
+    default="/group/jug/federico/critic_net_training"
 )
 lg.add_argument(
     "--debug", action="store_true",
@@ -230,7 +230,12 @@ else:
 loss_config = LossConfig(loss_type=args.loss)
 
 exp_name = f"{args.arch}_{args.dataset}_{args.target}_binary"
-log_dir = get_log_dir(args.log_base_dir, exp_name) if args.log else None
+if args.log:
+    log_dir = get_log_dir(
+        base_dir=args.log_base_dir, exp_name=exp_name
+    )
+else:
+    log_dir = None
 
 training_config = TrainingConfig(
     max_epochs=args.epochs,
