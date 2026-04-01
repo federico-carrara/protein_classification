@@ -1,2 +1,3 @@
-from .dataset import BaseTiffDataset, BinaryDataset, MultiClassDataset
+from .binary_dataset import BinaryDataset
+from .multiclass_dataset import MultiClassDataset
 from .lambdaSplit_preds_dataset import LambdaSplitPredsDataset
