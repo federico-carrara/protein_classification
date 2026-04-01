@@ -1,4 +1,5 @@
 import random
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal, Optional, Sequence, Union
 
@@ -25,6 +26,15 @@ from protein_classification.data.utils import (
 PathLike = Union[Path, str]
 
 
+@dataclass(frozen=True, slots=True)
+class CropRecipe:
+    """Pre-computed recipe for a single crop."""
+
+    family: str  # "positive", "trivial", "mixed", "inverted"
+    source_indices: tuple[int, ...]  # dataset indices to load
+    alpha: Optional[float] = None  # blending weight, only for "mixed"
+
+
 class BinaryDataset(Dataset):
     """Lazy TIFF dataset for one-vs-rest binary classification."""
 
@@ -49,7 +59,7 @@ class BinaryDataset(Dataset):
         normalization_scope: Literal["dataset", "image"] = "dataset",
         dataset_stats: Optional[tuple[float, float]] = None,
         background_rejection_prob: float = 0.9,
-        background_threshold_by_label: Optional[dict[int, float]] = None,
+        background_thresholds_by_label: Optional[dict[int, float]] = None,
         background_threshold_quantile: float = 0.05,
         background_threshold_quantiles_by_label: Optional[dict[int, float]] = None,
         background_threshold_samples_per_image: int = 4,
@@ -103,10 +113,13 @@ class BinaryDataset(Dataset):
         if not self.non_target_indices:
             raise ValueError("BinaryDataset requires at least one non-target sample.")
 
-        if background_threshold_by_label is not None:
-            self.background_thresholds_by_label = background_threshold_by_label
+        if background_thresholds_by_label is not None:
+            self.background_thresholds_by_label = background_thresholds_by_label
         else:
             self.background_thresholds_by_label = self._compute_background_thresholds()
+
+        self._epoch = 0
+        self._plan = self._build_epoch_plan()
 
     def _transform_label(self, label: int) -> int:
         return int(label == self.target_label)
@@ -234,80 +247,64 @@ class BinaryDataset(Dataset):
             processed_crops.append(crop.to(torch.float32))
         return torch.stack(processed_crops)
 
-    def _sample_index(self, indices: list[int]) -> int:
-        """Sample one dataset index from a pool."""
-        return random.choice(indices)
-
-    def _sample_negative_family(self) -> str:
-        """Sample which negative family to generate."""
-        families = list(self.negative_family_weights.keys())
-        weights = list(self.negative_family_weights.values())
-        return random.choices(families, weights=weights, k=1)[0]
-
-    def _sample_positive_crop(self) -> tuple[Tensor, int]:
-        """Sample one positive crop from the target class."""
-        idx = self._sample_index(self.target_indices)
+    def _make_positive_crop(self, idx: int) -> tuple[Tensor, int]:
+        """Make one positive crop from the target class at *idx*."""
         image = self._load_image(idx)
         source_label = int(self.inputs[idx][1])
         crop, _ = self._sample_single_crop(image, label=1, source_label=source_label)
         return crop, 1
 
-    def _sample_trivial_negative_crop(self) -> tuple[Tensor, int]:
-        """Sample one trivial negative crop from a non-target class."""
-        idx = self._sample_index(self.non_target_indices)
+    def _make_trivial_negative_crop(self, idx: int) -> tuple[Tensor, int]:
+        """Make one trivial negative crop from a non-target class at *idx*."""
         image = self._load_image(idx)
         source_label = int(self.inputs[idx][1])
         crop, _ = self._sample_single_crop(image, label=0, source_label=source_label)
         return crop, 0
 
-    def _sample_inverted_negative_crop(self) -> tuple[Tensor, int]:
-        """Sample one inverted negative crop from the target class."""
-        # TODO: consider other classes for inversion, not the target class
-        # indeed, the subtracted signal is usually the one coming from other classes,
-        # not the target class itself
-        crop, _ = self._sample_positive_crop()
+    def _make_inverted_negative_crop(self, idx: int) -> tuple[Tensor, int]:
+        """Make one inverted negative crop from the target class at *idx*."""
+        crop, _ = self._make_positive_crop(idx)
         crop = normalize_img(crop, "minmax", "image")
         crop = 1.0 - crop
         return crop, 0
 
-    def _sample_mixed_negative_crop(self) -> tuple[Tensor, int]:
-        """Sample one mixed negative crop from cropped patches."""
-        target_crop, _ = self._sample_positive_crop()
+    def _make_mixed_negative_crop(
+        self, source_indices: tuple[int, ...], alpha: float,
+    ) -> tuple[Tensor, int]:
+        """Make one mixed negative crop from the given source indices."""
+        target_crop, _ = self._make_positive_crop(source_indices[0])
         target_crop = normalize_img(target_crop, "minmax", "image")
 
         aux_crops: list[Tensor] = []
-        num_sources = random.randint(1, self.mixed_num_sources - 1)
-        for _ in range(num_sources):
-            idx = self._sample_index(self.non_target_indices)
-            image = self._load_image(idx)
-            source_label = int(self.inputs[idx][1])
+        for aux_idx in source_indices[1:]:
+            image = self._load_image(aux_idx)
+            source_label = int(self.inputs[aux_idx][1])
             aux_crop, _ = self._sample_single_crop(image, label=0, source_label=source_label)
             aux_crops.append(normalize_img(aux_crop, "minmax", "image"))
 
-        alpha = random.uniform(*self.mixed_alpha_range)
         aux_mean = torch.stack(aux_crops).mean(dim=0)
         mixed_crop = alpha * target_crop + (1.0 - alpha) * aux_mean
         return mixed_crop, 0
 
-    def _sample_binary_crop(self) -> tuple[Tensor, int]:
-        """Sample one crop according to the binary sample policy."""
-        if random.random() < self.positive_probability:
-            return self._sample_positive_crop()
-
-        family = self._sample_negative_family()
-        if family == "trivial":
-            return self._sample_trivial_negative_crop()
-        if family == "mixed":
-            return self._sample_mixed_negative_crop()
-        if family == "inverted":
-            return self._sample_inverted_negative_crop()
-        raise ValueError(f"Unknown negative family: {family}")
+    def _execute_recipe(self, recipe: CropRecipe) -> tuple[Tensor, int]:
+        """Execute a single :class:`CropRecipe` and return ``(crop, label)``."""
+        if recipe.family == "positive":
+            return self._make_positive_crop(recipe.source_indices[0])
+        if recipe.family == "trivial":
+            return self._make_trivial_negative_crop(recipe.source_indices[0])
+        if recipe.family == "inverted":
+            return self._make_inverted_negative_crop(recipe.source_indices[0])
+        if recipe.family == "mixed":
+            assert recipe.alpha is not None
+            return self._make_mixed_negative_crop(recipe.source_indices, recipe.alpha)
+        raise ValueError(f"Unknown family: {recipe.family}")
 
     def __getitem__(self, idx: int) -> Union[Tensor, tuple[Tensor, Tensor]]:
+        recipes = self._plan[idx]
         crops: list[Tensor] = []
         labels: list[int] = []
-        for _ in range(self.num_crops_per_image):
-            crop, label = self._sample_binary_crop()
+        for recipe in recipes:
+            crop, label = self._execute_recipe(recipe)
             crops.append(crop)
             labels.append(label)
 
@@ -335,6 +332,88 @@ class BinaryDataset(Dataset):
             max_images=self.background_threshold_max_images,
             imreader=self.imreader,
         )
+
+    def _build_epoch_plan(self) -> list[list[CropRecipe]]:
+        """Build a deterministic sampling plan for the current epoch.
+
+        Returns a list of ``len(self.inputs)`` slots, each containing
+        ``self.num_crops_per_image`` :class:`CropRecipe` instances.
+        """
+        rng = random.Random(self._epoch)
+
+        # Prepare shuffled decks with draw helpers
+        target_deck = list(self.target_indices)
+        rng.shuffle(target_deck)
+        target_cursor = 0
+
+        non_target_deck = list(self.non_target_indices)
+        rng.shuffle(non_target_deck)
+        non_target_cursor = 0
+
+        def draw_target() -> int:
+            nonlocal target_deck, target_cursor
+            if target_cursor >= len(target_deck):
+                rng.shuffle(target_deck)
+                target_cursor = 0
+            idx = target_deck[target_cursor]
+            target_cursor += 1
+            return idx
+
+        def draw_non_target() -> int:
+            nonlocal non_target_deck, non_target_cursor
+            if non_target_cursor >= len(non_target_deck):
+                rng.shuffle(non_target_deck)
+                non_target_cursor = 0
+            idx = non_target_deck[non_target_cursor]
+            non_target_cursor += 1
+            return idx
+
+        families = list(self.negative_family_weights.keys())
+        weights = list(self.negative_family_weights.values())
+
+        plan: list[list[CropRecipe]] = []
+        for _ in range(len(self.inputs)):
+            slot_recipes: list[CropRecipe] = []
+            for _ in range(self.num_crops_per_image):
+                if rng.random() < self.positive_probability:
+                    recipe = CropRecipe(
+                        family="positive",
+                        source_indices=(draw_target(),),
+                    )
+                else:
+                    family = rng.choices(families, weights=weights, k=1)[0]
+                    if family == "trivial":
+                        recipe = CropRecipe(
+                            family="trivial",
+                            source_indices=(draw_non_target(),),
+                        )
+                    elif family == "inverted":
+                        recipe = CropRecipe(
+                            family="inverted",
+                            source_indices=(draw_target(),),
+                        )
+                    elif family == "mixed":
+                        num_aux = rng.randint(1, self.mixed_num_sources - 1)
+                        target_idx = draw_target()
+                        aux_indices = tuple(
+                            draw_non_target() for _ in range(num_aux)
+                        )
+                        alpha = rng.uniform(*self.mixed_alpha_range)
+                        recipe = CropRecipe(
+                            family="mixed",
+                            source_indices=(target_idx, *aux_indices),
+                            alpha=alpha,
+                        )
+                    else:
+                        raise ValueError(f"Unknown negative family: {family}")
+                slot_recipes.append(recipe)
+            plan.append(slot_recipes)
+        return plan
+
+    def set_epoch(self, epoch: int) -> None:
+        """Rebuild the sampling plan for a new epoch."""
+        self._epoch = epoch
+        self._plan = self._build_epoch_plan()
 
     def __len__(self) -> int:
         return len(self.inputs)
