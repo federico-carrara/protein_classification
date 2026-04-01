@@ -116,7 +116,7 @@ class BioStructClassifier(pl.LightningModule):
         self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         x, y = batch
-        logits = self(x)
+        logits = self.model(x)
         if self.is_binary:
             logits = logits.squeeze(1)  # [B, 1] -> [B]
             preds = (logits > 0).long()

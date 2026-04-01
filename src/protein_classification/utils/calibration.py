@@ -9,16 +9,13 @@ import torch.nn as nn
 from torch import Tensor
 
 
-# ── temperature fitting ─────────────────────────────────────────────────────
-
-
 def fit_temperature(
     logits: Tensor,
     labels: Tensor,
     lr: float = 0.01,
     max_iter: int = 50,
 ) -> float:
-    """Fit a scalar temperature on binary logits using LBFGS.
+    """Fit a scalar temperature on binary logits using LBFGS (`max_iter` steps).
 
     Parameters
     ----------
@@ -54,9 +51,6 @@ def fit_temperature(
     return log_T.exp().item()
 
 
-# ── temperature application ─────────────────────────────────────────────────
-
-
 def apply_temperature(logits: Tensor, temperature: float) -> Tensor:
     """Apply temperature scaling and return calibrated probabilities.
 
@@ -73,9 +67,6 @@ def apply_temperature(logits: Tensor, temperature: float) -> Tensor:
         Calibrated probabilities, shape ``[N]``.
     """
     return torch.sigmoid(logits / temperature)
-
-
-# ── calibration metrics ─────────────────────────────────────────────────────
 
 
 def binary_nll(logits: Tensor, labels: Tensor) -> float:
