@@ -263,3 +263,55 @@ def load_checkpoint(
         ckpt["state_dict"] = new_state_dict
     
     return ckpt
+
+
+CALIBRATION_FILENAME = "calibration.json"
+
+
+def save_calibration(log_dir: PathLike, calibration_data: dict) -> Path:
+    """Save calibration metadata as a JSON sidecar file.
+
+    Parameters
+    ----------
+    log_dir : PathLike
+        Run directory where the calibration artifact is stored.
+    calibration_data : dict
+        Dictionary with calibration results (temperature, metrics, etc.).
+
+    Returns
+    -------
+    Path
+        Path to the saved calibration file.
+    """
+    fpath = Path(log_dir) / CALIBRATION_FILENAME
+    with open(fpath, "w") as f:
+        json.dump(calibration_data, f, indent=4)
+    return fpath
+
+
+def load_calibration(ckpt_dir: PathLike) -> dict:
+    """Load calibration metadata from a run directory.
+
+    Parameters
+    ----------
+    ckpt_dir : PathLike
+        Checkpoint / run directory that should contain ``calibration.json``.
+
+    Returns
+    -------
+    dict
+        Calibration metadata.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no calibration file exists in the directory.
+    """
+    fpath = Path(ckpt_dir) / CALIBRATION_FILENAME
+    if not fpath.is_file():
+        raise FileNotFoundError(
+            f"No calibration metadata found at '{fpath}'. "
+            "Run training with --calibrate first, or remove --use_calibration."
+        )
+    with open(fpath) as f:
+        return json.load(f)

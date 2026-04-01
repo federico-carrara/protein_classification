@@ -89,7 +89,7 @@ ar.add_argument("--dropout_p", type=float, default=0.1,
 
 # --- loss ---
 parser.add_argument("--loss", type=str, default="multiclass_focal_loss",
-                    choices=["multiclass_focal_loss", "binary_focal_loss"])
+                    choices=["multiclass_focal_loss", "binary_focal_loss", "binary_bce_loss"])
 
 # --- training ---
 tr = parser.add_argument_group("training")
@@ -102,6 +102,11 @@ tr.add_argument("--grad_clip", type=float, default=1.0)
 tr.add_argument("--normalize", type=str, default="std", choices=["std", "minmax"])
 tr.add_argument("--num_workers", type=int, default=3)
 
+# --- calibration ---
+parser.add_argument("--calibrate", action="store_true",
+                    help="Run post-training temperature scaling on the validation set "
+                         "(binary mode only).")
+
 # --- logging ---
 lg = parser.add_argument_group("logging")
 lg.add_argument("--log", action="store_true", help="Enable Weights & Biases logging.")
@@ -111,6 +116,11 @@ lg.add_argument("--debug", action="store_true",
                 help="Limit data to 200 samples for fast iteration.")
 
 args = parser.parse_args()
+
+if args.calibrate and not args.binary:
+    parser.error("--calibrate is only supported in --binary mode.")
+if args.calibrate and not args.log:
+    parser.error("--calibrate requires --log (need a run directory to save calibration metadata).")
 
 # ── dataset-specific defaults ────────────────────────────────────────────────
 
@@ -161,7 +171,7 @@ data_config = DataConfig(
 )
 
 # --- model config ---
-num_classes = 2 if args.binary else len(args.labels) + 3  # +3 for Nucleus, Microtubules, ER
+num_classes = 1 if args.binary else len(args.labels) + 3  # +3 for Nucleus, Microtubules, ER
 if args.arch.startswith("resnet"):
     model_config = ResNetConfig(
         architecture=args.arch,
@@ -330,6 +340,62 @@ trainer = Trainer(
     log_every_n_steps=10,
 )
 trainer.fit(model, train_loader, val_loader)
+
+# ── post-training calibration ───────────────────────────────────────────────
+
+if args.calibrate:
+    from protein_classification.utils.calibration import (
+        apply_temperature, binary_brier, binary_ece, binary_nll, fit_temperature,
+    )
+    from protein_classification.utils.io import get_checkpoint_path, load_checkpoint, save_calibration
+
+    # load best checkpoint
+    best_ckpt_path = get_checkpoint_path(str(log_dir), mode="best")
+    best_ckpt = load_checkpoint(str(log_dir), best=True)
+    model.load_state_dict(best_ckpt["state_dict"], strict=True)
+    model.eval()
+
+    # collect logits and labels on validation set
+    predict_trainer = Trainer(
+        accelerator="gpu",
+        enable_progress_bar=True,
+        precision=training_config.precision,
+    )
+    outputs = predict_trainer.predict(model=model, dataloaders=val_loader)
+    all_logits = torch.cat([batch[1] for batch in outputs])
+    all_labels = torch.cat([batch[2] for batch in outputs])
+
+    # pre-calibration metrics
+    pre_probs = torch.sigmoid(all_logits)
+    pre_nll = binary_nll(all_logits, all_labels)
+    pre_brier = binary_brier(pre_probs, all_labels)
+    pre_ece = binary_ece(pre_probs, all_labels)
+
+    # fit temperature
+    temperature = fit_temperature(all_logits, all_labels)
+
+    # post-calibration metrics
+    post_probs = apply_temperature(all_logits, temperature)
+    post_nll = binary_nll(all_logits / temperature, all_labels)
+    post_brier = binary_brier(post_probs, all_labels)
+    post_ece = binary_ece(post_probs, all_labels)
+
+    calibration_data = {
+        "temperature": temperature,
+        "num_samples": len(all_labels),
+        "checkpoint_path": best_ckpt_path,
+        "pre_calibration": {"nll": pre_nll, "brier": pre_brier, "ece": pre_ece},
+        "post_calibration": {"nll": post_nll, "brier": post_brier, "ece": post_ece},
+    }
+    cal_path = save_calibration(log_dir, calibration_data)
+
+    print("\n──────────── Calibration Results ────────────")
+    print(f"Temperature        : {temperature:.4f}")
+    print(f"Validation samples : {len(all_labels)}")
+    print(f"Pre  NLL / Brier / ECE : {pre_nll:.4f} / {pre_brier:.4f} / {pre_ece:.4f}")
+    print(f"Post NLL / Brier / ECE : {post_nll:.4f} / {post_brier:.4f} / {post_ece:.4f}")
+    print(f"Saved to: {cal_path}")
+    print("─────────────────────────────────────────────\n")
 
 if args.log:
     wandb.finish()

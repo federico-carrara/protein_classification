@@ -4,6 +4,8 @@ from typing import Union
 from pydantic import BaseModel, ConfigDict, field_validator
 from torch import nn
 
+from torch import nn
+
 from protein_classification.losses import BinaryFocalLoss, MulticlassFocalLoss
 
 AnyLoss = Union[nn.Module, BinaryFocalLoss, MulticlassFocalLoss]
@@ -11,9 +13,9 @@ AnyLoss = Union[nn.Module, BinaryFocalLoss, MulticlassFocalLoss]
 
 class SupportedLosses(Enum):
     """Enum for supported loss functions."""
-    BINARY_FOCAL_LOSS = "binary_focal_loss"
+    BINARY_FOCAL_LOSS = "binary_focal"
     BINARY_CROSS_ENTROPY = "binary_cross_entropy"
-    MULTICLASS_FOCAL_LOSS = "multiclass_focal_loss"
+    MULTICLASS_FOCAL_LOSS = "multiclass_focal"
     MULTICLASS_CROSS_ENTROPY = "multiclass_cross_entropy"
 
 
