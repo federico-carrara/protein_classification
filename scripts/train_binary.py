@@ -372,7 +372,8 @@ train_loader = DataLoader(
     pin_memory=True,
     drop_last=True,
     collate_fn=collate_multi_crop_batches,
-    prefetch_factor=2,
+    prefetch_factor=2 if args.num_workers > 0 else None,
+    persistent_workers=args.num_workers > 0,
 )
 val_loader = DataLoader(
     val_dataset,
@@ -382,7 +383,8 @@ val_loader = DataLoader(
     pin_memory=True,
     drop_last=False,
     collate_fn=collate_multi_crop_batches,
-    prefetch_factor=2,
+    prefetch_factor=2 if args.num_workers > 0 else None,
+    persistent_workers=args.num_workers > 0,
 )
 
 # ── logger ───────────────────────────────────────────────────────────────────
