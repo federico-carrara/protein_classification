@@ -72,7 +72,7 @@ def _get_filepaths_with_labels(
 
 def get_cellatlas_filepaths_and_labels(
     data_dir: PathLike,
-    extra_labels: Sequence[str],
+    labels: Sequence[str],
     rel_data_path: PathLike = "./train_data_raw/",
     rel_labels_path: PathLike = "./labels_list.json",
     rel_fnames_labels_pairs_path: PathLike = "./train_labels.csv"
@@ -82,32 +82,37 @@ def get_cellatlas_filepaths_and_labels(
     Returned image file paths are for all images of a given protein label,
     including the paired reference channels (nucleus, microtubules, ER).
     """
+    curr_labels_dict = {label: i for i, label in enumerate(labels)}
+    
     labels_dict = _load_labels_dict(data_dir, rel_labels_path)
     pairs_df = _load_fname_label_pairs(data_dir, rel_fnames_labels_pairs_path)
-    fpaths_by_label = _get_filepaths_with_labels(pairs_df, extra_labels, labels_dict)
-
-    curr_labels_dict = {
-        "Nucleus" : 0,
-        "Microtubules": 1,
-        "Endoplasmic reticulum": 2,
-    }
-    curr_labels_dict.update({label: (i + 3) for i, label in enumerate(extra_labels)})
+    
+    # create a dict with lists of fpaths available for each extra label
+    extra_labels = [
+        label for label in labels
+        if label not in ["Nucleus", "Endoplasmic reticulum", "Microtubules"]
+    ]
+    fpaths_by_extra_label = _get_filepaths_with_labels(pairs_df, extra_labels, labels_dict)
     
     out_fpaths: list[str] = []
     out_labels: list[int] = []
-    for label, fpaths in fpaths_by_label.items():
+    for extra_label, fpaths in fpaths_by_extra_label.items():
         for fpath in fpaths:
             fpath = Path(data_dir) / rel_data_path / fpath
-            # append file paths
+            # --- append file paths and labels
+            # extra
             out_fpaths.append(f"{str(fpath)}_green.tif")
-            out_fpaths.append(f"{str(fpath)}_blue.tif")
-            out_fpaths.append(f"{str(fpath)}_yellow.tif")
-            out_fpaths.append(f"{str(fpath)}_red.tif")
-            # append labels
-            out_labels.append(curr_labels_dict[label])
-            out_labels.append(curr_labels_dict["Nucleus"])
-            out_labels.append(curr_labels_dict["Endoplasmic reticulum"])
-            out_labels.append(curr_labels_dict["Microtubules"])
+            out_labels.append(curr_labels_dict[extra_label])
+            # reference channels
+            if "Nucleus" in labels:
+                out_fpaths.append(f"{str(fpath)}_blue.tif")
+                out_labels.append(curr_labels_dict["Nucleus"])
+            if "Endoplasmic reticulum" in labels:
+                out_fpaths.append(f"{str(fpath)}_yellow.tif")
+                out_labels.append(curr_labels_dict["Endoplasmic reticulum"])
+            if "Microtubules" in labels:
+                out_fpaths.append(f"{str(fpath)}_red.tif")
+                out_labels.append(curr_labels_dict["Microtubules"])
     
     outputs = list(zip(out_fpaths, out_labels))
     return outputs, curr_labels_dict

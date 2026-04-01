@@ -48,16 +48,16 @@ parser = argparse.ArgumentParser(
 
 # --- dataset ---
 ds = parser.add_argument_group("dataset")
-ds.add_argument("--dataset", type=str, default="CellAtlas", choices=["CellAtlas", "BioSR"])
+ds.add_argument("--dataset", type=str, required=True, choices=["CellAtlas", "BioSR"])
 ds.add_argument(
-    "--labels", type=str, nargs="+", default=["Mitochondria"],
+    "--labels", type=str, nargs="+", default=None,
     help="Protein labels to include (determines the full label set)."
 )
 ds.add_argument(
     "--img-size", type=int, default=None,
     help="Image resize dimension. Defaults per dataset if omitted."
 )
-ds.add_argument("--normalize", type=str, default="minmax", choices=["std", "minmax"])
+ds.add_argument("--norm_type", type=str, default="minmax", choices=["std", "minmax"])
 ds.add_argument("--norm_scope", type=str, default="image", choices=["dataset", "image"])
 ds.add_argument(
     "--stats-path", type=str, default=None,
@@ -69,11 +69,11 @@ ds.add_argument(
     help="Augmentation applied at train time."
 )
 ds.add_argument(
-    "--crop-size", type=int, default=None,
+    "--crop-size", type=int, default=256,
     help="Crop size in pixels. Defaults to img_size (no cropping)."
 )
 ds.add_argument(
-    "--num_crops", type=int, required=True,
+    "--num_crops", type=int, default=4,
     help="Number of crops sampled per source image."
 )
 
@@ -161,20 +161,23 @@ DATASET_DEFAULTS = {
         "stats_path": "data_stats_cellatlas.json",
         "img_size": 2048,
         "bit_depth": 8,
+        "labels": ["Nucleus", "Mitochondria", "Endoplasmic reticulum", "Microtubules"]
     },
     "BioSR": {
         "data_dir": "/group/jug/federico/data/BioSR_v2",
         "stats_path": "data_stats_biosr.json",
         "img_size": 1004,
         "bit_depth": 16,
+        "labels": ["F-actin", "CCPs", "ER", "Microtubules"]
     },
 }
 
 defaults = DATASET_DEFAULTS[args.dataset]
 DATA_DIR = defaults["data_dir"]
 STATS_PATH = defaults["stats_path"]
+LABELS = args.labels or defaults["labels"]
 IMG_SIZE = args.img_size or defaults["img_size"]
-BIT_DEPTH = args.bit_depth or defaults["bit_depth"]
+BIT_DEPTH = defaults["bit_depth"]
 CROP_SIZE = args.crop_size or IMG_SIZE
 
 torch.set_float32_matmul_precision("medium")
@@ -182,7 +185,11 @@ torch.set_float32_matmul_precision("medium")
 # ── configurations ───────────────────────────────────────────────────────────
 
 if args.norm_scope == "dataset":
-    dataset_stats = load_dataset_stats(stats_path=STATS_PATH, labels=args.labels)
+    stats_dict = load_dataset_stats(stats_path=STATS_PATH, labels=args.labels)
+    if args.norm_type == "std":
+        dataset_stats = (stats_dict.get("mean"), stats_dict.get("std"))
+    elif args.norm_type == "minmax":
+        dataset_stats = (stats_dict.get("min"), stats_dict.get("max"))
 else:
     dataset_stats = None
 
@@ -195,14 +202,14 @@ val_aug_config = train_aug_config.model_copy(update={"transform": None})
 
 data_config = DataConfig(
     data_dir=DATA_DIR,
-    labels=args.labels,
+    labels=LABELS,
     img_size=IMG_SIZE,
     train_augmentation_config=train_aug_config,
     val_augmentation_config=val_aug_config,
     bit_depth=BIT_DEPTH,
-    normalize=args.normalize,
+    normalize=args.norm_type,
     normalization_scope=args.norm_scope,
-    dataset_stats=(dataset_stats["mean"], dataset_stats["std"]),
+    dataset_stats=dataset_stats,
 )
 
 # --- model config ---
@@ -220,20 +227,13 @@ else:
         dropout_p=0.5,
     )
 
-if args.loss == "focal":
-    loss_name = "binary_focal"
-elif args.loss == "cross_entropy":
-    loss_name = "binary_cross_entropy"
-else:
-    raise ValueError(f"Unsupported loss function: {args.loss}")
-
-loss_config = LossConfig(loss_type=loss_name)
+loss_config = LossConfig(loss_type=args.loss)
 
 exp_name = f"{args.arch}_{args.dataset}_{args.target}_binary"
 log_dir = get_log_dir(args.log_base_dir, exp_name) if args.log else None
 
 training_config = TrainingConfig(
-    max_epochs=args.max_epochs,
+    max_epochs=args.epochs,
     lr=args.lr,
     batch_size=args.batch_size,
     gradient_clip_val=1.0,
@@ -253,16 +253,16 @@ algo_config = AlgorithmConfig(
 
 if args.dataset == "CellAtlas":
     input_data, curr_labels = get_cellatlas_filepaths_and_labels(
-        data_dir=DATA_DIR, extra_labels=args.labels,
+        data_dir=DATA_DIR, labels=LABELS,
     )
 elif args.dataset == "BioSR":
     input_data, curr_labels = get_biosr_filepaths_and_labels(
-        data_dir=DATA_DIR, labels=args.labels,
+        data_dir=DATA_DIR, labels=LABELS,
     )
 
 if args.target not in curr_labels:
     parser.error(f"--target '{args.target}' not in available labels: {list(curr_labels)}")
-target_label = curr_labels[args.target]
+target_label_id = curr_labels[args.target]
 
 if args.debug:
     input_data = input_data[:20]
@@ -272,7 +272,7 @@ train_data, val_data = train_test_split(train_data, train_ratio=0.9, determinist
 
 print("-------------- Dataset Info --------------")
 print(f"Dataset            : {args.dataset}")
-print(f"Mode               : binary (target={args.target}, id={target_label})")
+print(f"Mode               : binary (target={args.target}, id={target_label_id})")
 print(f"Architecture       : {args.arch}")
 print(f"Positive prob      : {args.pos_prob}")
 print(f"Negative families  : {negative_family_weights}")
@@ -285,7 +285,7 @@ train_dataset = BinaryDataset(
     inputs=train_data,
     split="train",
     augmentation_config=train_aug_config,
-    target_label=target_label,
+    target_label=target_label_id,
     positive_probability=args.pos_prob,
     negative_family_weights=negative_family_weights,
     img_size=IMG_SIZE,
@@ -300,7 +300,7 @@ val_dataset = BinaryDataset(
     inputs=val_data, 
     split="test",
     augmentation_config=val_aug_config,
-    target_label=target_label,
+    target_label=target_label_id,
     positive_probability=args.pos_prob,
     negative_family_weights=negative_family_weights,
     img_size=IMG_SIZE,
