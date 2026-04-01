@@ -120,7 +120,7 @@ def crop_img(img: NDArray | Tensor, crop_size: int, random_crop: bool) -> NDArra
 
 def compute_background_score(
     image: Tensor,
-    metrics: list[Literal["std", "entropy"]] = ["std"]
+    metrics: list[Literal["std", "entropy"]] = ["entropy"]
 ) -> float:
     """Compute the background score of an image as combination of the specified metrics.
     
@@ -358,69 +358,6 @@ def identify_background_crops(
         return crop, bg_label
     else:
         return crop, label
-
-
-def compute_background_thresholds(
-    inputs: Sequence[tuple[Union[str, Path], int]],
-    img_size: int,
-    crop_size: int,
-    random_crop: bool,
-    metrics: list[Literal["std", "entropy"]],
-    quantile: float = 0.1,
-    quantiles_by_label: Optional[dict[int, float]] = None,
-    samples_per_image: int = 4,
-    max_images: Optional[int] = None,
-    imreader: Callable[[Union[str, Path]], Union[NDArray, Tensor]] = tiff.imread,
-) -> dict[int, float]:
-    """Precompute per-label background thresholds from training data.
-
-    Thresholds are computed as per-label score quantiles over random crops.
-    """
-    if not 0.0 <= quantile <= 1.0:
-        raise ValueError("`quantile` must be in [0, 1].")
-
-    score_by_label: dict[int, list[float]] = defaultdict(list)
-    if max_images is not None:
-        idxs = np.random.choice(len(inputs), min(max_images, len(inputs)), replace=False)
-        selected_inputs = [inputs[i] for i in idxs]
-    else:
-        selected_inputs = list(inputs)
-
-    for fpath, label in tqdm(selected_inputs, desc="Computing background thresholds"):
-        image = imreader(fpath)
-        if isinstance(image, torch.Tensor):
-            image_tensor = image.to(torch.float32)
-        else:
-            if img_size is not None and image.shape != (img_size, img_size):
-                image = resize_img(image, img_size)
-            image_tensor = torch.tensor(image, dtype=torch.float32)
-
-        if image_tensor.ndim == 2:
-            image_tensor = image_tensor.unsqueeze(0)
-        elif image_tensor.ndim != 3:
-            raise ValueError(
-                f"Expected 2D or 3D image tensor, got shape {tuple(image_tensor.shape)}"
-            )
-
-        if img_size is not None and image_tensor.shape[-2:] != (img_size, img_size):
-            resized = resize_img(image_tensor.squeeze(0).cpu().numpy(), img_size)
-            image_tensor = torch.tensor(resized, dtype=torch.float32).unsqueeze(0)
-
-        for _ in range(samples_per_image):
-            crop = crop_img(image_tensor, crop_size, random_crop)
-            score_by_label[int(label)].append(compute_background_score(crop, metrics))
-
-    thresholds: dict[int, float] = {}
-    for label, scores in score_by_label.items():
-        if not scores:
-            continue
-        label_quantile = quantile
-        if quantiles_by_label is not None:
-            label_quantile = quantiles_by_label.get(int(label), quantile)
-        thresholds[int(label)] = float(
-            np.quantile(np.asarray(scores, dtype=np.float32), label_quantile)
-        )
-    return thresholds
 
 
 def resize_img(img: NDArray, size: int) -> NDArray:

@@ -15,9 +15,8 @@ from protein_classification.data.augmentations import (
     intensity_augmentation,
     noise_augmentation,
 )
+from protein_classification.data.background import BackgroundAnalyzer
 from protein_classification.data.utils import (
-    compute_background_score,
-    compute_background_thresholds,
     crop_img,
     normalize_img,
     resize_img,
@@ -38,8 +37,6 @@ class CropRecipe:
 class BinaryDataset(Dataset):
     """Lazy TIFF dataset for one-vs-rest binary classification."""
 
-    _MAX_BACKGROUND_REJECTION_RETRIES = 10
-
     # TODO: cleanup args by simply passing the data config
     def __init__(
         self,
@@ -58,13 +55,12 @@ class BinaryDataset(Dataset):
         normalize: Optional[Literal["minmax", "std"]] = None,
         normalization_scope: Literal["dataset", "image"] = "dataset",
         dataset_stats: Optional[tuple[float, float]] = None,
-        background_rejection_prob: float = 0.9,
-        background_thresholds_by_label: Optional[dict[int, float]] = None,
+        background_analyzer: Optional[BackgroundAnalyzer] = None,
+        background_metrics: Optional[list[Literal["std", "entropy"]]] = None,
         background_threshold_quantile: float = 0.05,
         background_threshold_quantiles_by_label: Optional[dict[int, float]] = None,
-        background_threshold_samples_per_image: int = 4,
         background_threshold_max_images: Optional[int] = 50,
-        background_metrics: Optional[list[Literal["std", "entropy"]]] = None,
+        background_stride: int = 16,
         return_label: bool = True,
     ) -> None:
         super().__init__()
@@ -78,16 +74,12 @@ class BinaryDataset(Dataset):
         self.normalize = normalize
         self.normalization_scope = normalization_scope
         self.dataset_stats = dataset_stats
-        self.background_rejection_prob = background_rejection_prob
-        self.background_threshold_quantile = background_threshold_quantile
-        self.background_threshold_quantiles_by_label = background_threshold_quantiles_by_label
-        self.background_threshold_samples_per_image = background_threshold_samples_per_image
-        self.background_threshold_max_images = background_threshold_max_images
         self.background_metrics = background_metrics or ["std"]
         self.imreader = imreader
         self.return_label = return_label
         self.augmentation_config = augmentation_config
         self.num_crops_per_image = num_crops_per_image
+        self.background_stride = background_stride
 
         self.target_label = int(target_label)
         self.positive_probability = float(positive_probability)
@@ -113,10 +105,23 @@ class BinaryDataset(Dataset):
         if not self.non_target_indices:
             raise ValueError("BinaryDataset requires at least one non-target sample.")
 
-        if background_thresholds_by_label is not None:
-            self.background_thresholds_by_label = background_thresholds_by_label
+        # Background analysis: compute thresholds + valid crop positions
+        if background_analyzer is not None:
+            self.background_analyzer = background_analyzer
+        elif self.augmentation_config.crop_size is not None:
+            self.background_analyzer = BackgroundAnalyzer(
+                inputs=self.inputs,
+                crop_size=self.augmentation_config.crop_size,
+                stride=self.background_stride,
+                img_size=self.img_size,
+                metrics=self.background_metrics,
+                quantile=background_threshold_quantile,
+                quantiles_by_label=background_threshold_quantiles_by_label,
+                max_images_for_thresholds=background_threshold_max_images,
+                imreader=self.imreader,
+            )
         else:
-            self.background_thresholds_by_label = self._compute_background_thresholds()
+            self.background_analyzer = None
 
         self._epoch = 0
         self._plan = self._build_epoch_plan()
@@ -173,53 +178,45 @@ class BinaryDataset(Dataset):
         self,
         image: Tensor,
         label: int,
-        source_label: Optional[int] = None,
+        source_idx: Optional[int] = None,
     ) -> tuple[Tensor, int]:
-        """Extract a single crop from an image."""
+        """Extract a single crop, preferring precomputed foreground positions.
+
+        If *source_idx* is provided and a :class:`BackgroundAnalyzer` is
+        available, a crop position is sampled from the precomputed valid
+        positions (with jitter).  Otherwise falls back to a plain random or
+        center crop.
+        """
         crop_size = self.augmentation_config.crop_size
         if crop_size is None:
             return image, label
 
+        _, h, w = image.shape
+
+        # Try to use precomputed valid positions
         if (
-            source_label is None or
-            self.background_thresholds_by_label is None or
-            self.background_rejection_prob <= 0.0
+            source_idx is not None
+            and self.background_analyzer is not None
+            and self.augmentation_config.random_crop
         ):
-            crop = crop_img(
-                image,
-                crop_size,
-                self.augmentation_config.random_crop,
+            valid_positions = self.background_analyzer.valid_positions_by_index.get(
+                source_idx, []
             )
-            return crop, label
-
-        threshold = self.background_thresholds_by_label.get(int(source_label))
-        if threshold is None:
-            crop = crop_img(
-                image,
-                crop_size,
-                self.augmentation_config.random_crop,
-            )
-            return crop, label
-
-        last_crop: Optional[Tensor] = None
-        for _ in range(self._MAX_BACKGROUND_REJECTION_RETRIES):
-            crop = crop_img(
-                image,
-                crop_size,
-                self.augmentation_config.random_crop,
-            )
-            last_crop = crop
-            score = compute_background_score(
-                crop,
-                self.background_metrics,
-            )
-            if score >= threshold:
-                return crop, label
-            if random.random() >= self.background_rejection_prob:
+            if valid_positions:
+                y, x = random.choice(valid_positions)
+                # Add jitter within half a stride, clamped to image bounds
+                half_stride = self.background_stride // 2
+                if half_stride > 0:
+                    y += random.randint(-half_stride, half_stride)
+                    x += random.randint(-half_stride, half_stride)
+                    y = max(0, min(y, h - crop_size))
+                    x = max(0, min(x, w - crop_size))
+                crop = image[:, y : y + crop_size, x : x + crop_size]
                 return crop, label
 
-        assert last_crop is not None
-        return last_crop, label
+        # Fallback: plain random or center crop
+        crop = crop_img(image, crop_size, self.augmentation_config.random_crop)
+        return crop, label
 
     def _apply_per_crop_processing(self, crops: Tensor) -> Tensor:
         """Apply transforms and normalization independently to each crop."""
@@ -250,15 +247,13 @@ class BinaryDataset(Dataset):
     def _make_positive_crop(self, idx: int) -> tuple[Tensor, int]:
         """Make one positive crop from the target class at *idx*."""
         image = self._load_image(idx)
-        source_label = int(self.inputs[idx][1])
-        crop, _ = self._sample_single_crop(image, label=1, source_label=source_label)
+        crop, _ = self._sample_single_crop(image, label=1, source_idx=idx)
         return crop, 1
 
     def _make_trivial_negative_crop(self, idx: int) -> tuple[Tensor, int]:
         """Make one trivial negative crop from a non-target class at *idx*."""
         image = self._load_image(idx)
-        source_label = int(self.inputs[idx][1])
-        crop, _ = self._sample_single_crop(image, label=0, source_label=source_label)
+        crop, _ = self._sample_single_crop(image, label=0, source_idx=idx)
         return crop, 0
 
     def _make_inverted_negative_crop(self, idx: int) -> tuple[Tensor, int]:
@@ -278,8 +273,7 @@ class BinaryDataset(Dataset):
         aux_crops: list[Tensor] = []
         for aux_idx in source_indices[1:]:
             image = self._load_image(aux_idx)
-            source_label = int(self.inputs[aux_idx][1])
-            aux_crop, _ = self._sample_single_crop(image, label=0, source_label=source_label)
+            aux_crop, _ = self._sample_single_crop(image, label=0, source_idx=aux_idx)
             aux_crops.append(normalize_img(aux_crop, "minmax", "image"))
 
         aux_mean = torch.stack(aux_crops).mean(dim=0)
@@ -314,24 +308,6 @@ class BinaryDataset(Dataset):
         if self.return_label:
             return processed_crops, labels_tensor
         return processed_crops
-
-    def _compute_background_thresholds(self) -> dict[int, float]:
-        """Precompute per-original-label thresholds used for crop rejection."""
-        if self.augmentation_config.crop_size is None:
-            return {}
-
-        return compute_background_thresholds(
-            inputs=self.inputs,
-            img_size=self.img_size,
-            crop_size=self.augmentation_config.crop_size,
-            random_crop=self.augmentation_config.random_crop,
-            metrics=self.background_metrics,
-            quantile=self.background_threshold_quantile,
-            quantiles_by_label=self.background_threshold_quantiles_by_label,
-            samples_per_image=self.background_threshold_samples_per_image,
-            max_images=self.background_threshold_max_images,
-            imreader=self.imreader,
-        )
 
     def _build_epoch_plan(self) -> list[list[CropRecipe]]:
         """Build a deterministic sampling plan for the current epoch.

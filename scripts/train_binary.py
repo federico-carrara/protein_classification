@@ -26,6 +26,7 @@ from protein_classification.config import (
 )
 from protein_classification.config.architectures import DenseNetConfig, ResNetConfig
 from protein_classification.data import BinaryDataset
+from protein_classification.data.background import BackgroundAnalyzer
 from protein_classification.data.biosr import get_biosr_filepaths_and_labels
 from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_labels
 from protein_classification.data.utils import collate_multi_crop_batches, train_test_split
@@ -165,7 +166,8 @@ DATASET_DEFAULTS = {
         "stats_path": "data_stats_cellatlas.json",
         "img_size": 2048,
         "bit_depth": 8,
-        "labels": ["Nucleus", "Mitochondria", "Endoplasmic reticulum", "Microtubules"]
+        "labels": ["Nucleus", "Mitochondria", "Endoplasmic reticulum", "Microtubules"],
+        "background_threshold_quantiles_by_label": {0: 0.25, 1: 0.1, 2: 0.1, 3: 0.1},
     },
     "BioSR": {
         "data_dir": "/group/jug/federico/data/BioSR_v2",
@@ -313,7 +315,7 @@ train_dataset = BinaryDataset(
     return_label=True,
 )
 val_dataset = BinaryDataset(
-    inputs=val_data, 
+    inputs=val_data,
     split="test",
     augmentation_config=val_aug_config,
     target_label=target_label_id,
@@ -326,7 +328,14 @@ val_dataset = BinaryDataset(
     normalization_scope=data_config.normalization_scope,
     dataset_stats=data_config.dataset_stats,
     return_label=True,
-    background_thresholds_by_label=train_dataset.background_thresholds_by_label
+    background_analyzer=BackgroundAnalyzer(
+        inputs=val_data,
+        crop_size=val_aug_config.crop_size,
+        stride=16,
+        img_size=IMG_SIZE,
+        metrics=data_config.background_metrics or ["std"],
+        thresholds_by_label=train_dataset.background_analyzer.thresholds_by_label,
+    ) if val_aug_config.crop_size is not None else None,
 )
 
 train_loader = DataLoader(

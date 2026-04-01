@@ -31,7 +31,7 @@ class DataAugmentationConfig(BaseModel):
     crop_size: Optional[int] = None
     """The size of the crops used for training. If `None`, no cropping is applied."""
     
-    random_crop: bool = False
+    random_crop: bool = True
     """Whether to apply random cropping to the images. If `False`, center cropping is
     applied."""
 
