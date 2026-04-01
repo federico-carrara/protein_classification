@@ -337,7 +337,7 @@ train_loader = DataLoader(
     pin_memory=True,
     drop_last=True,
     collate_fn=collate_multi_crop_batches,
-    prefetch_factor=4,
+    prefetch_factor=2,
 )
 val_loader = DataLoader(
     val_dataset,
@@ -347,7 +347,7 @@ val_loader = DataLoader(
     pin_memory=True,
     drop_last=False,
     collate_fn=collate_multi_crop_batches,
-    prefetch_factor=4,
+    prefetch_factor=2,
 )
 
 # ── logger ───────────────────────────────────────────────────────────────────
@@ -387,7 +387,6 @@ trainer = Trainer(
     gradient_clip_val=training_config.gradient_clip_val,
     accumulate_grad_batches=training_config.accumulate_grad_batches,
     log_every_n_steps=10,
-    num_sanity_val_steps=0,
 )
 trainer.fit(model, train_loader, val_loader)
 
