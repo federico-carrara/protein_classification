@@ -50,24 +50,31 @@ parser = argparse.ArgumentParser(
 ds = parser.add_argument_group("dataset")
 ds.add_argument("--dataset", type=str, default="CellAtlas", choices=["CellAtlas", "BioSR"])
 ds.add_argument(
-    "--data_dir", type=str, default=None,
-    help="Path to dataset root. Defaults per dataset if omitted."
-)
-ds.add_argument(
     "--labels", type=str, nargs="+", default=["Mitochondria"],
     help="Protein labels to include (determines the full label set)."
 )
 ds.add_argument(
-    "--stats_path", type=str, default=None,
-    help="Path to dataset stats JSON. Defaults per dataset if omitted."
-)
-ds.add_argument(
-    "--img_size", type=int, default=None,
+    "--img-size", type=int, default=None,
     help="Image resize dimension. Defaults per dataset if omitted."
 )
+ds.add_argument("--normalize", type=str, default="minmax", choices=["std", "minmax"])
+ds.add_argument("--norm_scope", type=str, default="image", choices=["dataset", "image"])
 ds.add_argument(
-    "--bit_depth", type=int, default=None,
-    help="Input image bit depth (8 or 16). Defaults per dataset if omitted."
+    "--stats-path", type=str, default=None,
+    help="Path to the dataset statistics file."
+)
+ds.add_argument(
+    "--aug", type=str, default=None,
+    choices=["geometric", "intensity", "noise", "all"],
+    help="Augmentation applied at train time."
+)
+ds.add_argument(
+    "--crop-size", type=int, default=None,
+    help="Crop size in pixels. Defaults to img_size (no cropping)."
+)
+ds.add_argument(
+    "--num_crops", type=int, required=True,
+    help="Number of crops sampled per source image."
 )
 
 # --- binary target ---
@@ -77,34 +84,18 @@ bt.add_argument(
     help="Target label name for the positive class (e.g. 'Mitochondria')."
 )
 bt.add_argument(
-    "--pos_prob", type=float, default=0.5,
+    "--pos-prob", type=float, default=0.5,
     help="Probability of sampling a positive crop per draw."
 )
 bt.add_argument(
-    "--neg_families", type=str, nargs="+",
+    "--neg-families", type=str, nargs="+",
     default=["trivial", "mixed", "inverted"],
     help="Negative families to enable."
 )
 bt.add_argument(
-    "--neg_weights", type=float, nargs="+",
+    "--neg-weights", type=float, nargs="+",
     default=[1.0, 1.0, 1.0],
     help="Weights for each negative family (same order as --neg_families)."
-)
-
-# --- augmentation ---
-ag = parser.add_argument_group("augmentation")
-ag.add_argument(
-    "--aug", type=str, default=None,
-    choices=["geometric", "intensity", "noise", "all"],
-    help="Augmentation applied at train time."
-)
-ag.add_argument(
-    "--crop_size", type=int, default=None,
-    help="Crop size in pixels. Defaults to img_size (no cropping)."
-)
-ag.add_argument(
-    "--num_crops", type=int, required=True,
-    help="Number of crops sampled per source image."
 )
 
 # --- architecture ---
@@ -121,34 +112,34 @@ ar.add_argument(
     ],
     help="Model architecture."
 )
-ar.add_argument(
-    "--dropout_p", type=float, default=0.1,
-    help="Dropout probability (0 disables)."
-)
 
 # --- loss ---
 parser.add_argument(
     "--loss", type=str, default="binary_cross_entropy",
     choices=["binary_cross_entropy", "binary_focal"],
 )
+parser.add_argument(
+    "--calibrate",
+    action="store_true",
+    help="Perform post-training temperature scaling."
+)
 
 # --- training ---
 tr = parser.add_argument_group("training")
 tr.add_argument("--batch_size", type=int, default=32)
 tr.add_argument(
-    "--acc_batches", type=int, default=1,
+    "--acc-batches", type=int, default=1,
     help="Gradient accumulation steps."
 )
 tr.add_argument("--lr", type=float, default=1e-3)
 tr.add_argument("--epochs", type=int, default=100)
-tr.add_argument("--normalize", type=str, default="std", choices=["std", "minmax"])
-tr.add_argument("--num_workers", type=int, default=3)
+tr.add_argument("--num-workers", type=int, default=3)
 
 # --- logging ---
 lg = parser.add_argument_group("logging")
 lg.add_argument("--log", action="store_true", help="Enable Weights & Biases logging.")
 lg.add_argument(
-    "--log_base_dir", type=str,
+    "--log-base-dir", type=str,
     default="/group/jug/federico/classification_training"
 )
 lg.add_argument(
@@ -180,8 +171,8 @@ DATASET_DEFAULTS = {
 }
 
 defaults = DATASET_DEFAULTS[args.dataset]
-DATA_DIR = args.data_dir or defaults["data_dir"]
-STATS_PATH = args.stats_path or defaults["stats_path"]
+DATA_DIR = defaults["data_dir"]
+STATS_PATH = defaults["stats_path"]
 IMG_SIZE = args.img_size or defaults["img_size"]
 BIT_DEPTH = args.bit_depth or defaults["bit_depth"]
 CROP_SIZE = args.crop_size or IMG_SIZE
@@ -190,7 +181,10 @@ torch.set_float32_matmul_precision("medium")
 
 # ── configurations ───────────────────────────────────────────────────────────
 
-dataset_stats = load_dataset_stats(stats_path=STATS_PATH, labels=args.labels)
+if args.norm_scope == "dataset":
+    dataset_stats = load_dataset_stats(stats_path=STATS_PATH, labels=args.labels)
+else:
+    dataset_stats = None
 
 train_aug_config = DataAugmentationConfig(
     transform=args.aug,
@@ -207,6 +201,7 @@ data_config = DataConfig(
     val_augmentation_config=val_aug_config,
     bit_depth=BIT_DEPTH,
     normalize=args.normalize,
+    normalization_scope=args.norm_scope,
     dataset_stats=(dataset_stats["mean"], dataset_stats["std"]),
 )
 
@@ -215,14 +210,14 @@ if args.arch.startswith("resnet"):
     model_config = ResNetConfig(
         architecture=args.arch,
         num_classes=1,
-        dropout_p=args.dropout_p,
+        dropout_p=0.1,
     )
 else:
     model_config = DenseNetConfig(
         architecture=args.arch,
         num_classes=1,
         dropout_block=args.dropout_p > 0,
-        dropout_p=args.dropout_p,
+        dropout_p=0.5,
     )
 
 if args.loss == "focal":

@@ -65,16 +65,16 @@ class DataConfig(BaseModel):
     to the range [0, 1] based on the bit depth. If `None`, no range normalization
     is applied."""
     
-    normalize: Optional[Union[str, Literal['minmax', 'std']]] = None
+    normalize: Literal['minmax', 'std'] = "minmax"
     """The normalization method to apply to the images.
     - 'minmax': scales images to [0, 1] based on the min and max values.
     - 'std': standardizes images to have zero mean and unit variance.
     By default `None`, which means no normalization is applied."""
 
-    normalization_scope: Literal["dataset", "image"] = "dataset"
+    normalization_scope: Literal["dataset", "image"] = "image"
     """Scope used to compute normalization statistics.
     - 'dataset': use precomputed dataset-level statistics from `dataset_stats`.
-    - 'image': compute statistics independently for each image/patch."""
+    - 'image': compute statistics independently for each image (or crop, if using it)."""
     
     dataset_stats: Optional[tuple[float, float]] = None
     """Pre-computed dataset statistics (mean, std) or (min, max) for normalization.
