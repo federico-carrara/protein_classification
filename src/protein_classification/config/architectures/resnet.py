@@ -44,7 +44,7 @@ class ResNetConfig(BaseModel):
     num_init_features: int = 64
     """Number of filters in the stem convolution."""
 
-    dropout_p: float = 0.0
+    dropout_p: float = 0.1
     """Dropout probability before the classifier head."""
 
     @model_validator(mode="after")
