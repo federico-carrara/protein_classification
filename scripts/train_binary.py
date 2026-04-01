@@ -31,7 +31,13 @@ from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_la
 from protein_classification.data.utils import collate_multi_crop_batches, train_test_split
 from protein_classification.model import BioStructClassifier
 from protein_classification.utils.callbacks import get_callbacks
-from protein_classification.utils.io import load_dataset_stats, get_log_dir, log_configs
+from protein_classification.utils.calibration import (
+    apply_temperature, binary_brier, binary_ece, binary_nll, fit_temperature,
+)
+from protein_classification.utils.io import (
+    load_dataset_stats, get_log_dir, log_configs,
+    get_checkpoint_path, load_checkpoint, save_calibration
+)
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
@@ -122,8 +128,8 @@ ar.add_argument(
 
 # --- loss ---
 parser.add_argument(
-    "--loss", type=str, default="cross_entropy",
-    choices=["cross_entropy", "focal"],
+    "--loss", type=str, default="binary_cross_entropy",
+    choices=["binary_cross_entropy", "binary_focal"],
 )
 
 # --- training ---
@@ -220,9 +226,9 @@ else:
     )
 
 if args.loss == "focal":
-    loss_name = "binary_focal_loss"
+    loss_name = "binary_focal"
 elif args.loss == "cross_entropy":
-    loss_name = "binary_bce_loss"
+    loss_name = "binary_cross_entropy"
 else:
     raise ValueError(f"Unsupported loss function: {args.loss}")
 
@@ -370,6 +376,57 @@ trainer = Trainer(
     log_every_n_steps=10,
 )
 trainer.fit(model, train_loader, val_loader)
+
+# ── post-training calibration ───────────────────────────────────────────────
+
+if args.calibrate:
+    # load best checkpoint
+    best_ckpt_path = get_checkpoint_path(str(log_dir), mode="best")
+    best_ckpt = load_checkpoint(str(log_dir), best=True)
+    model.load_state_dict(best_ckpt["state_dict"], strict=True)
+    model.eval()
+
+    # collect logits and labels on validation set
+    predict_trainer = Trainer(
+        accelerator="gpu",
+        enable_progress_bar=True,
+        precision=training_config.precision,
+    )
+    outputs = predict_trainer.predict(model=model, dataloaders=val_loader)
+    all_logits = torch.cat([batch[1] for batch in outputs])
+    all_labels = torch.cat([batch[2] for batch in outputs])
+
+    # pre-calibration metrics
+    pre_probs = torch.sigmoid(all_logits)
+    pre_nll = binary_nll(all_logits, all_labels)
+    pre_brier = binary_brier(pre_probs, all_labels)
+    pre_ece = binary_ece(pre_probs, all_labels)
+
+    # fit temperature
+    temperature = fit_temperature(all_logits, all_labels)
+
+    # post-calibration metrics
+    post_probs = apply_temperature(all_logits, temperature)
+    post_nll = binary_nll(all_logits / temperature, all_labels)
+    post_brier = binary_brier(post_probs, all_labels)
+    post_ece = binary_ece(post_probs, all_labels)
+
+    calibration_data = {
+        "temperature": temperature,
+        "num_samples": len(all_labels),
+        "checkpoint_path": best_ckpt_path,
+        "pre_calibration": {"nll": pre_nll, "brier": pre_brier, "ece": pre_ece},
+        "post_calibration": {"nll": post_nll, "brier": post_brier, "ece": post_ece},
+    }
+    cal_path = save_calibration(log_dir, calibration_data)
+
+    print("\n──────────── Calibration Results ────────────")
+    print(f"Temperature        : {temperature:.4f}")
+    print(f"Validation samples : {len(all_labels)}")
+    print(f"Pre  NLL / Brier / ECE : {pre_nll:.4f} / {pre_brier:.4f} / {pre_ece:.4f}")
+    print(f"Post NLL / Brier / ECE : {post_nll:.4f} / {post_brier:.4f} / {post_ece:.4f}")
+    print(f"Saved to: {cal_path}")
+    print("─────────────────────────────────────────────\n")
 
 if args.log:
     wandb.finish()
