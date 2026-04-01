@@ -40,7 +40,7 @@ class AlgorithmConfig(BaseModel):
     log_dir: Optional[PathLike]
     """Directory where training logs and checkpoints will be saved."""
     
-    wandb_project: str = "protein_classification"
+    wandb_project: str = "critic-nets-pretraining"
     """Name of the Weights & Biases project for logging."""
     
     # TODO: add parameters for the optimizer and scheduler
