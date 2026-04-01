@@ -1,16 +1,11 @@
-from collections import defaultdict
-from pathlib import Path
-from typing import Callable, Literal, Optional, Sequence, Union
+from typing import Literal, Optional, Union
 
 import numpy as np
-import tifffile as tiff
 import torch
 from numpy.typing import NDArray
 from skimage.transform import resize
 from torch import Tensor
 from tqdm import tqdm
-
-from protein_classification.config.data import DataAugmentationConfig
 
 
 def normalize_range(

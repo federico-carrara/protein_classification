@@ -299,6 +299,36 @@ print(f"Validation samples : {len(val_data)}")
 print(f"Labels             : {curr_labels}")
 print("------------------------------------------\n")
 
+# ── Background analysis ─────────────────────────────────────────────────────
+# Compute foreground thresholds on train data, then derive valid crop
+# positions for both train and val using the same thresholds.
+train_bg_positions = None
+val_bg_positions = None
+bg_stride = CROP_SIZE // 4
+
+if train_aug_config.crop_size is not None:
+    train_analyzer = BackgroundAnalyzer(
+        inputs=train_data,
+        crop_size=train_aug_config.crop_size,
+        stride=bg_stride,
+        img_size=IMG_SIZE,
+        metrics=data_config.background_metrics or ["std"],
+        quantile=data_config.background_threshold_quantile,
+        quantiles_by_label=defaults.get("background_threshold_quantiles_by_label"),
+    )
+    train_bg_positions = train_analyzer.valid_positions_by_index
+
+if val_aug_config.crop_size is not None:
+    val_analyzer = BackgroundAnalyzer(
+        inputs=val_data,
+        crop_size=val_aug_config.crop_size,
+        stride=bg_stride,
+        img_size=IMG_SIZE,
+        metrics=data_config.background_metrics or ["std"],
+        thresholds_by_label=train_analyzer.thresholds_by_label,
+    )
+    val_bg_positions = val_analyzer.valid_positions_by_index
+
 train_dataset = BinaryDataset(
     inputs=train_data,
     split="train",
@@ -313,6 +343,8 @@ train_dataset = BinaryDataset(
     normalization_scope=data_config.normalization_scope,
     dataset_stats=data_config.dataset_stats,
     return_label=True,
+    valid_crop_positions=train_bg_positions,
+    crop_position_jitter=bg_stride // 2,
 )
 val_dataset = BinaryDataset(
     inputs=val_data,
@@ -328,14 +360,8 @@ val_dataset = BinaryDataset(
     normalization_scope=data_config.normalization_scope,
     dataset_stats=data_config.dataset_stats,
     return_label=True,
-    background_analyzer=BackgroundAnalyzer(
-        inputs=val_data,
-        crop_size=val_aug_config.crop_size,
-        stride=16,
-        img_size=IMG_SIZE,
-        metrics=data_config.background_metrics or ["std"],
-        thresholds_by_label=train_dataset.background_analyzer.thresholds_by_label,
-    ) if val_aug_config.crop_size is not None else None,
+    valid_crop_positions=val_bg_positions,
+    crop_position_jitter=bg_stride // 2,
 )
 
 train_loader = DataLoader(

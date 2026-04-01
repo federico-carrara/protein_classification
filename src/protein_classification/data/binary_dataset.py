@@ -15,7 +15,6 @@ from protein_classification.data.augmentations import (
     intensity_augmentation,
     noise_augmentation,
 )
-from protein_classification.data.background import BackgroundAnalyzer
 from protein_classification.data.utils import (
     crop_img,
     normalize_img,
@@ -55,12 +54,8 @@ class BinaryDataset(Dataset):
         normalize: Optional[Literal["minmax", "std"]] = None,
         normalization_scope: Literal["dataset", "image"] = "dataset",
         dataset_stats: Optional[tuple[float, float]] = None,
-        background_analyzer: Optional[BackgroundAnalyzer] = None,
-        background_metrics: Optional[list[Literal["std", "entropy"]]] = None,
-        background_threshold_quantile: float = 0.05,
-        background_threshold_quantiles_by_label: Optional[dict[int, float]] = None,
-        background_threshold_max_images: Optional[int] = 50,
-        background_stride: int = 16,
+        valid_crop_positions: Optional[dict[int, list[tuple[int, int]]]] = None,
+        crop_position_jitter: int = 8,
         return_label: bool = True,
     ) -> None:
         super().__init__()
@@ -74,12 +69,12 @@ class BinaryDataset(Dataset):
         self.normalize = normalize
         self.normalization_scope = normalization_scope
         self.dataset_stats = dataset_stats
-        self.background_metrics = background_metrics or ["std"]
+        self.valid_crop_positions = valid_crop_positions
+        self.crop_position_jitter = crop_position_jitter
         self.imreader = imreader
         self.return_label = return_label
         self.augmentation_config = augmentation_config
         self.num_crops_per_image = num_crops_per_image
-        self.background_stride = background_stride
 
         self.target_label = int(target_label)
         self.positive_probability = float(positive_probability)
@@ -104,24 +99,6 @@ class BinaryDataset(Dataset):
             raise ValueError("BinaryDataset requires at least one target-class sample.")
         if not self.non_target_indices:
             raise ValueError("BinaryDataset requires at least one non-target sample.")
-
-        # Background analysis: compute thresholds + valid crop positions
-        if background_analyzer is not None:
-            self.background_analyzer = background_analyzer
-        elif self.augmentation_config.crop_size is not None:
-            self.background_analyzer = BackgroundAnalyzer(
-                inputs=self.inputs,
-                crop_size=self.augmentation_config.crop_size,
-                stride=self.background_stride,
-                img_size=self.img_size,
-                metrics=self.background_metrics,
-                quantile=background_threshold_quantile,
-                quantiles_by_label=background_threshold_quantiles_by_label,
-                max_images_for_thresholds=background_threshold_max_images,
-                imreader=self.imreader,
-            )
-        else:
-            self.background_analyzer = None
 
         self._epoch = 0
         self._plan = self._build_epoch_plan()
@@ -182,10 +159,9 @@ class BinaryDataset(Dataset):
     ) -> tuple[Tensor, int]:
         """Extract a single crop, preferring precomputed foreground positions.
 
-        If *source_idx* is provided and a :class:`BackgroundAnalyzer` is
-        available, a crop position is sampled from the precomputed valid
-        positions (with jitter).  Otherwise falls back to a plain random or
-        center crop.
+        If *source_idx* is provided and valid crop positions are available,
+        a position is sampled from them (with jitter).  Otherwise falls back
+        to a plain random or center crop.
         """
         crop_size = self.augmentation_config.crop_size
         if crop_size is None:
@@ -196,19 +172,16 @@ class BinaryDataset(Dataset):
         # Try to use precomputed valid positions
         if (
             source_idx is not None
-            and self.background_analyzer is not None
+            and self.valid_crop_positions is not None
             and self.augmentation_config.random_crop
         ):
-            valid_positions = self.background_analyzer.valid_positions_by_index.get(
-                source_idx, []
-            )
-            if valid_positions:
-                y, x = random.choice(valid_positions)
-                # Add jitter within half a stride, clamped to image bounds
-                half_stride = self.background_stride // 2
-                if half_stride > 0:
-                    y += random.randint(-half_stride, half_stride)
-                    x += random.randint(-half_stride, half_stride)
+            positions = self.valid_crop_positions.get(source_idx, [])
+            if positions:
+                y, x = random.choice(positions)
+                jitter = self.crop_position_jitter
+                if jitter > 0:
+                    y += random.randint(-jitter, jitter)
+                    x += random.randint(-jitter, jitter)
                     y = max(0, min(y, h - crop_size))
                     x = max(0, min(x, w - crop_size))
                 crop = image[:, y : y + crop_size, x : x + crop_size]

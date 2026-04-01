@@ -137,14 +137,29 @@ class BackgroundAnalyzer:
     def _compute_score_map(self, image: Tensor) -> tuple[list[tuple[int, int]], list[float]]:
         """Compute background scores on a regular grid of overlapping crops.
 
-        Returns the grid positions and corresponding scores.
+        Returns the grid positions and corresponding scores.  For each axis,
+        if the last grid position doesn't reach the image edge, an extra
+        edge-aligned position (``dim_size - crop_size``) is appended so that
+        no region of the image is systematically excluded.
         """
         # TODO: make compatible with 3D
         _, h, w = image.shape
+
+        # Build axis coordinates, adding edge positions if needed
+        ys = list(range(0, h - self._crop_size + 1, self._stride))
+        last_y = h - self._crop_size
+        if ys[-1] != last_y:
+            ys.append(last_y)
+
+        xs = list(range(0, w - self._crop_size + 1, self._stride))
+        last_x = w - self._crop_size
+        if xs[-1] != last_x:
+            xs.append(last_x)
+
         positions: list[tuple[int, int]] = []
         scores: list[float] = []
-        for y in range(0, h - self._crop_size + 1, self._stride):
-            for x in range(0, w - self._crop_size + 1, self._stride):
+        for y in ys:
+            for x in xs:
                 crop = image[:, y : y + self._crop_size, x : x + self._crop_size]
                 score = compute_background_score(crop, self._metrics)
                 positions.append((y, x))
