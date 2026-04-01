@@ -202,7 +202,7 @@ else:
 train_aug_config = DataAugmentationConfig(
     transform=args.aug,
     crop_size=CROP_SIZE,
-    random_crop=True,
+    random_crop=True
 )
 val_aug_config = train_aug_config.model_copy(update={"transform": None})
 
@@ -361,7 +361,7 @@ val_dataset = BinaryDataset(
     dataset_stats=data_config.dataset_stats,
     return_label=True,
     valid_crop_positions=val_bg_positions,
-    crop_position_jitter=bg_stride // 2,
+    crop_position_jitter=0,
 )
 
 train_loader = DataLoader(

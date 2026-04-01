@@ -157,11 +157,11 @@ class BinaryDataset(Dataset):
         label: int,
         source_idx: Optional[int] = None,
     ) -> tuple[Tensor, int]:
-        """Extract a single crop, preferring precomputed foreground positions.
+        """Extract a single random crop, preferring precomputed foreground positions.
 
         If *source_idx* is provided and valid crop positions are available,
         a position is sampled from them (with jitter).  Otherwise falls back
-        to a plain random or center crop.
+        to a uniformly random crop.
         """
         crop_size = self.augmentation_config.crop_size
         if crop_size is None:
@@ -170,11 +170,7 @@ class BinaryDataset(Dataset):
         _, h, w = image.shape
 
         # Try to use precomputed valid positions
-        if (
-            source_idx is not None
-            and self.valid_crop_positions is not None
-            and self.augmentation_config.random_crop
-        ):
+        if source_idx is not None and self.valid_crop_positions is not None:
             positions = self.valid_crop_positions.get(source_idx, [])
             if positions:
                 y, x = random.choice(positions)
@@ -187,8 +183,8 @@ class BinaryDataset(Dataset):
                 crop = image[:, y : y + crop_size, x : x + crop_size]
                 return crop, label
 
-        # Fallback: plain random or center crop
-        crop = crop_img(image, crop_size, self.augmentation_config.random_crop)
+        # Fallback: uniformly random crop
+        crop = crop_img(image, crop_size, random_crop=True)
         return crop, label
 
     def _apply_per_crop_processing(self, crops: Tensor) -> Tensor:
