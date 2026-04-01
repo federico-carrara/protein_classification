@@ -25,6 +25,7 @@ from protein_classification.data.utils import (
 PathLike = Union[Path, str]
 
 
+# TODO: refactor, create a single dataset for binary classification, this inheritance is just bullshit
 class BaseTiffDataset(Dataset):
     """Lazy TIFF-backed dataset with multi-crop sampling.
 
@@ -243,6 +244,7 @@ class BinaryDataset(BaseTiffDataset):
         normalization_scope: Literal["dataset", "image"] = "dataset",
         dataset_stats: Optional[tuple[float, float]] = None,
         background_rejection_prob: float = 0.9,
+        background_threshold_by_label: Optional[dict[int, float]] = None,
         background_threshold_quantile: float = 0.05,
         background_threshold_quantiles_by_label: Optional[dict[int, float]] = None,
         background_threshold_samples_per_image: int = 4,
@@ -292,12 +294,16 @@ class BinaryDataset(BaseTiffDataset):
         if not self.non_target_indices:
             raise ValueError("BinaryDataset requires at least one non-target sample.")
         print("Computing background thresholds for BinaryDataset...")
-        self.background_thresholds_by_label = self._compute_background_thresholds()
+        if background_threshold_by_label is not None:
+            self.background_thresholds_by_label = background_threshold_by_label
+        else:
+            self.background_thresholds_by_label = self._compute_background_thresholds()
         print(f"Computed background thresholds for {len(self.background_thresholds_by_label)} labels.")
 
     def _transform_label(self, label: int) -> int:
         return int(label == self.target_label)
 
+    # TODO: move in pydantic config
     def _validate_binary_sampling_config(self) -> None:
         """Validate binary negative-sampling configuration."""
         valid_families = {"trivial", "mixed", "inverted"}
