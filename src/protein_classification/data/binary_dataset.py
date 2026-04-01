@@ -336,12 +336,15 @@ class BinaryDataset(Dataset):
     def _build_epoch_plan(self) -> list[list[CropRecipe]]:
         """Build a deterministic sampling plan for the current epoch.
 
-        Returns a list of ``len(self.inputs)`` slots, each containing
-        ``self.num_crops_per_image`` :class:`CropRecipe` instances.
+        The epoch is sized by the minority (target) pool: slots are generated
+        until the target deck is exhausted.  Neither deck is replenished, so
+        every target image appears exactly once per epoch.  The non-target deck
+        is partially consumed; different subsets are covered across epochs
+        thanks to reshuffling.
         """
         rng = random.Random(self._epoch)
 
-        # Prepare shuffled decks with draw helpers
+        # Prepare shuffled decks (no replenishment)
         target_deck = list(self.target_indices)
         rng.shuffle(target_deck)
         target_cursor = 0
@@ -350,20 +353,20 @@ class BinaryDataset(Dataset):
         rng.shuffle(non_target_deck)
         non_target_cursor = 0
 
+        def target_remaining() -> int:
+            return len(target_deck) - target_cursor
+
+        def non_target_remaining() -> int:
+            return len(non_target_deck) - non_target_cursor
+
         def draw_target() -> int:
-            nonlocal target_deck, target_cursor
-            if target_cursor >= len(target_deck):
-                rng.shuffle(target_deck)
-                target_cursor = 0
+            nonlocal target_cursor
             idx = target_deck[target_cursor]
             target_cursor += 1
             return idx
 
         def draw_non_target() -> int:
-            nonlocal non_target_deck, non_target_cursor
-            if non_target_cursor >= len(non_target_deck):
-                rng.shuffle(non_target_deck)
-                non_target_cursor = 0
+            nonlocal non_target_cursor
             idx = non_target_deck[non_target_cursor]
             non_target_cursor += 1
             return idx
@@ -372,10 +375,12 @@ class BinaryDataset(Dataset):
         weights = list(self.negative_family_weights.values())
 
         plan: list[list[CropRecipe]] = []
-        for _ in range(len(self.inputs)):
+        while True:
             slot_recipes: list[CropRecipe] = []
             for _ in range(self.num_crops_per_image):
                 if rng.random() < self.positive_probability:
+                    if target_remaining() < 1:
+                        break
                     recipe = CropRecipe(
                         family="positive",
                         source_indices=(draw_target(),),
@@ -383,17 +388,23 @@ class BinaryDataset(Dataset):
                 else:
                     family = rng.choices(families, weights=weights, k=1)[0]
                     if family == "trivial":
+                        if non_target_remaining() < 1:
+                            break
                         recipe = CropRecipe(
                             family="trivial",
                             source_indices=(draw_non_target(),),
                         )
                     elif family == "inverted":
+                        if target_remaining() < 1:
+                            break
                         recipe = CropRecipe(
                             family="inverted",
                             source_indices=(draw_target(),),
                         )
                     elif family == "mixed":
                         num_aux = rng.randint(1, self.mixed_num_sources - 1)
+                        if target_remaining() < 1 or non_target_remaining() < num_aux:
+                            break
                         target_idx = draw_target()
                         aux_indices = tuple(
                             draw_non_target() for _ in range(num_aux)
@@ -407,7 +418,12 @@ class BinaryDataset(Dataset):
                     else:
                         raise ValueError(f"Unknown negative family: {family}")
                 slot_recipes.append(recipe)
+
+            # Only keep complete slots (all num_crops_per_image recipes filled)
+            if len(slot_recipes) < self.num_crops_per_image:
+                break
             plan.append(slot_recipes)
+
         return plan
 
     def set_epoch(self, epoch: int) -> None:
@@ -416,4 +432,4 @@ class BinaryDataset(Dataset):
         self._plan = self._build_epoch_plan()
 
     def __len__(self) -> int:
-        return len(self.inputs)
+        return len(self._plan)

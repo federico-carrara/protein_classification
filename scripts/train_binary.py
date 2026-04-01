@@ -326,7 +326,7 @@ val_dataset = BinaryDataset(
     normalization_scope=data_config.normalization_scope,
     dataset_stats=data_config.dataset_stats,
     return_label=True,
-    background_threshold_by_label=train_dataset.background_thresholds_by_label
+    background_thresholds_by_label=train_dataset.background_thresholds_by_label
 )
 
 train_loader = DataLoader(

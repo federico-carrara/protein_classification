@@ -77,21 +77,11 @@ print(f"Non-target files   : {n_neg}")
 # %% Sampling helpers
 
 def _sample_with_family(ds: BinaryDataset) -> tuple[torch.Tensor, int, str]:
-    """Sample one crop, also returning the negative-family name for display."""
-    if random.random() < ds.positive_probability:
-        crop, label = ds._sample_positive_crop()
-        return crop, label, "positive"
-
-    family = ds._sample_negative_family()
-    if family == "trivial":
-        crop, label = ds._sample_trivial_negative_crop()
-    elif family == "mixed":
-        crop, label = ds._sample_mixed_negative_crop()
-    elif family == "inverted":
-        crop, label = ds._sample_inverted_negative_crop()
-    else:
-        raise ValueError(f"Unknown family: {family}")
-    return crop, label, family
+    """Sample one crop from a random plan slot, also returning the family name."""
+    slot_idx = random.randrange(len(ds))
+    recipe = ds._plan[slot_idx][0]
+    crop, label = ds._execute_recipe(recipe)
+    return crop, label, recipe.family
 
 
 def _to_display(crop: torch.Tensor) -> np.ndarray:
