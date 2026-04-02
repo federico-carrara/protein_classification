@@ -178,8 +178,8 @@ class BinaryDataset(Dataset):
                 if jitter > 0:
                     y += random.randint(-jitter, jitter)
                     x += random.randint(-jitter, jitter)
-                    y = max(0, min(y, h - crop_size))
-                    x = max(0, min(x, w - crop_size))
+                y = max(0, min(y, h - crop_size))
+                x = max(0, min(x, w - crop_size))
                 crop = image[:, y : y + crop_size, x : x + crop_size]
                 return crop, label
 
