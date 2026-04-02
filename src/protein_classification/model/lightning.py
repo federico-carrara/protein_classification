@@ -27,6 +27,7 @@ class BioStructClassifier(pl.LightningModule):
         self.is_binary = self.num_classes == 1
         self.model = _build_model(config.architecture_config)
         self.loss_fn = loss_factory(config.loss_config)
+        self.training_config = config.training_config
 
         # metrics
         if self.is_binary:
@@ -130,7 +131,7 @@ class BioStructClassifier(pl.LightningModule):
             optimizer,
             mode='min',
             factor=0.5,
-            patience=5,
+            patience=self.config.training_config.lr_scheduler_patience,
             threshold=1e-4,
             min_lr=1e-6,
         )

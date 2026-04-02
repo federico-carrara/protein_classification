@@ -32,8 +32,11 @@ class TrainingConfig(BaseModel):
     batch_size: int = Field(default=32, gt=0)
     """Batch size, greater than 0."""
     
-    earlystop_patience: Optional[int] = None
+    earlystop_patience: Optional[int] = Field(default=20, ge=0)
     """Patience for the early stopping callback."""
+    
+    lr_scheduler_patience: Optional[int] = Field(default=5, ge=0)
+    """Patience for the learning rate scheduler."""
     
     precision: Literal["64", "32", "16-mixed", "bf16-mixed"] = Field(default="32")
     """Numerical precision"""
