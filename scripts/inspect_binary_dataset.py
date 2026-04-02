@@ -77,11 +77,11 @@ print(f"Non-target files   : {n_neg}")
 # %% Sampling helpers
 
 def _sample_with_family(ds: BinaryDataset) -> tuple[torch.Tensor, int, str]:
-    """Sample one crop from a random plan slot, also returning the family name."""
-    slot_idx = random.randrange(len(ds))
-    recipe = ds._plan[slot_idx][0]
-    crop, label = ds._execute_recipe(recipe)
-    return crop, label, recipe.family
+    """Sample one crop from a random plan entry, also returning the family name."""
+    idx = random.randrange(len(ds))
+    recipe = ds._plan[idx]
+    crops, labels = ds._execute_recipe(recipe)
+    return crops[0], labels[0], recipe.family
 
 
 def _to_display(crop: torch.Tensor) -> np.ndarray:
