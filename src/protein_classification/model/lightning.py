@@ -126,16 +126,22 @@ class BioStructClassifier(pl.LightningModule):
 
     def configure_optimizers(self) -> dict:
         optimizer = torch.optim.Adam(self.parameters(), lr=self.config.training_config.lr)
-        # TODO: get params from config instead of hardcoding
-        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            milestones=[25, 30, 35, 40],
-            gamma=0.5
+            mode='min',
+            factor=0.5,
+            patience=5,
+            threshold=1e-4,
+            min_lr=1e-6,
         )
         return {
             'optimizer': optimizer,
-            'lr_scheduler': lr_scheduler,
-            'monitor': 'val_loss',
+            'lr_scheduler': {
+                'scheduler': lr_scheduler,
+                'monitor': 'val_loss',
+                'interval': 'epoch',
+                'frequency': 1,
+            },
         }
 
     def on_train_epoch_start(self) -> None:
