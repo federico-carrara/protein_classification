@@ -6,6 +6,7 @@ thresholds and per-image valid crop positions in a single systematic pass.
 
 from __future__ import annotations
 
+import json
 import random
 from pathlib import Path
 from typing import Callable, Literal, Optional, Sequence, Union
@@ -105,6 +106,48 @@ class BackgroundAnalyzer:
     @property
     def valid_positions_by_index(self) -> dict[int, list[tuple[int, int]]]:
         return self._valid_positions_by_index
+
+    def save(self, path: PathLike) -> None:
+        """Save thresholds and valid positions to a JSON file.
+
+        Positions are keyed by file path (not index) so the cache is
+        independent of any particular train/val split.
+        """
+        data = {
+            "thresholds_by_label": {
+                str(k): v for k, v in self._thresholds_by_label.items()
+            },
+            "valid_positions_by_filepath": {
+                str(self._inputs[idx][0]): positions
+                for idx, positions in self._valid_positions_by_index.items()
+            },
+            "params": {
+                "crop_size": self._crop_size,
+                "stride": self._stride,
+                "img_size": self._img_size,
+                "metrics": self._metrics,
+            },
+        }
+        with open(path, "w") as f:
+            json.dump(data, f)
+
+    @staticmethod
+    def load(path: PathLike) -> dict:
+        """Load precomputed background data from a JSON file."""
+        with open(path) as f:
+            return json.load(f)
+
+    @staticmethod
+    def to_index_keyed(
+        valid_positions_by_filepath: dict[str, list[list[int]]],
+        inputs: Sequence[tuple[PathLike, int]],
+    ) -> dict[int, list[tuple[int, int]]]:
+        """Map filepath-keyed positions to index-keyed for a given inputs list."""
+        return {
+            idx: [tuple(pos) for pos in valid_positions_by_filepath[str(fpath)]]
+            for idx, (fpath, _) in enumerate(inputs)
+            if str(fpath) in valid_positions_by_filepath
+        }
 
     # ------------------------------------------------------------------
     # Internal

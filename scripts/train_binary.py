@@ -70,6 +70,10 @@ ds.add_argument(
     help="Augmentation applied at train time."
 )
 ds.add_argument(
+    "--bg-cache", type=str, default=None,
+    help="Path to precomputed background positions JSON (from precompute_background.py)."
+)
+ds.add_argument(
     "--crop-size", type=int, default=256,
     help="Crop size in pixels. Defaults to img_size (no cropping)."
 )
@@ -306,7 +310,18 @@ train_bg_positions = None
 val_bg_positions = None
 bg_stride = CROP_SIZE // 4
 
-if train_aug_config.crop_size is not None:
+if args.bg_cache:
+    # Load precomputed positions from cache
+    bg_data = BackgroundAnalyzer.load(args.bg_cache)
+    train_bg_positions = BackgroundAnalyzer.to_index_keyed(
+        bg_data["valid_positions_by_filepath"], train_data
+    )
+    val_bg_positions = BackgroundAnalyzer.to_index_keyed(
+        bg_data["valid_positions_by_filepath"], val_data
+    )
+    print(f"Loaded background cache from: {args.bg_cache}")
+else:
+    # Compute inline (useful for small datasets)
     train_analyzer = BackgroundAnalyzer(
         inputs=train_data,
         crop_size=train_aug_config.crop_size,
@@ -318,7 +333,6 @@ if train_aug_config.crop_size is not None:
     )
     train_bg_positions = train_analyzer.valid_positions_by_index
 
-if val_aug_config.crop_size is not None:
     val_analyzer = BackgroundAnalyzer(
         inputs=val_data,
         crop_size=val_aug_config.crop_size,
@@ -329,6 +343,8 @@ if val_aug_config.crop_size is not None:
     )
     val_bg_positions = val_analyzer.valid_positions_by_index
 
+
+# ── Data modules ─────────────────────────────────────────────────────
 train_dataset = BinaryDataset(
     inputs=train_data,
     split="train",

@@ -27,6 +27,7 @@ N_PER_PAGE = 25
 N_COLS = 5
 POS_PROB = 0.5
 AUG = "geometric"  # None, "geometric", "intensity", "noise", or "all"
+BG_CACHE = None  # set to a JSON path to skip live background analysis
 SEED = 0
 
 random.seed(SEED)
@@ -55,19 +56,27 @@ aug_config = DataAugmentationConfig(
 
 BG_STRIDE = CROP_SIZE // 4
 
-analyzer = BackgroundAnalyzer(
-    inputs=inputs,
-    crop_size=CROP_SIZE,
-    stride=BG_STRIDE,
-    img_size=IMG_SIZE,
-    metrics=["std"],
-    quantiles_by_label={
-        labels_dict["Mitochondria"]: 0.1,
-        labels_dict["Nucleus"]: 0.25,
-        labels_dict["Microtubules"]: 0.1,
-        labels_dict["Endoplasmic reticulum"]: 0.1,
-    },
-)
+if BG_CACHE is not None:
+    bg_data = BackgroundAnalyzer.load(BG_CACHE)
+    valid_positions = BackgroundAnalyzer.to_index_keyed(
+        bg_data["valid_positions_by_filepath"], inputs
+    )
+    print(f"Loaded background cache from: {BG_CACHE}")
+else:
+    analyzer = BackgroundAnalyzer(
+        inputs=inputs,
+        crop_size=CROP_SIZE,
+        stride=BG_STRIDE,
+        img_size=IMG_SIZE,
+        metrics=["std"],
+        quantiles_by_label={
+            labels_dict["Mitochondria"]: 0.1,
+            labels_dict["Nucleus"]: 0.25,
+            labels_dict["Microtubules"]: 0.1,
+            labels_dict["Endoplasmic reticulum"]: 0.1,
+        },
+    )
+    valid_positions = analyzer.valid_positions_by_index
 
 dataset = BinaryDataset(
     inputs=inputs,
@@ -78,7 +87,7 @@ dataset = BinaryDataset(
     target_label=target_label,
     positive_probability=POS_PROB,
     negative_family_weights={"trivial": 1.0, "mixed": 0.0, "inverted": 0.0},
-    valid_crop_positions=analyzer.valid_positions_by_index,
+    valid_crop_positions=valid_positions,
     crop_position_jitter=BG_STRIDE // 2,
     return_label=True,
 )
