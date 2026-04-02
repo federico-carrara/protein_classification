@@ -18,15 +18,15 @@ ARGS2=(64 256)
 COMBOS=()
 for V1 in "${ARGS1[@]}"; do
     for V2 in "${ARGS2[@]}"; do
-        COMBOS+=("$V1 $V2")
+        COMBOS+=("$V1|$V2")
     done
 done
-read VAL1 VAL2 <<< "${COMBOS[$SLURM_ARRAY_TASK_ID]}"
+IFS='|' read VAL1 VAL2 <<< "${COMBOS[$SLURM_ARRAY_TASK_ID]}"
 
 python scripts/train_binary.py \
-    --dataset CellAtlas --target $VAL1 \
+    --dataset CellAtlas --target "$VAL1" \
     --bg-cache /group/jug/federico/data/CellAtlas/precomputed_bg_CellAtlas_NucMitEndMic_crop256_stride64.json \
-    --crop_size $VAL2 --num-crops 32 --aug geometric \
+    --crop-size $VAL2 --num-crops 32 --aug geometric \
     --neg-families trivial \
     --batch-size 32 --epochs 50 --num-workers 6 \
     --calibrate --log \
