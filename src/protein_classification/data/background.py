@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import random
+import warnings
 from pathlib import Path
 from typing import Callable, Literal, Optional, Sequence, Union
 
@@ -143,11 +144,22 @@ class BackgroundAnalyzer:
         inputs: Sequence[tuple[PathLike, int]],
     ) -> dict[int, list[tuple[int, int]]]:
         """Map filepath-keyed positions to index-keyed for a given inputs list."""
-        return {
-            idx: [tuple(pos) for pos in valid_positions_by_filepath[str(fpath)]]
-            for idx, (fpath, _) in enumerate(inputs)
-            if str(fpath) in valid_positions_by_filepath
-        }
+        result: dict[int, list[tuple[int, int]]] = {}
+        missing: list[str] = []
+        for idx, (fpath, _) in enumerate(inputs):
+            key = str(fpath)
+            if key in valid_positions_by_filepath:
+                result[idx] = [tuple(pos) for pos in valid_positions_by_filepath[key]]
+            else:
+                missing.append(key)
+        if missing:
+            warnings.warn(
+                f"{len(missing)} / {len(inputs)} images not found in background "
+                f"cache — they will fall back to random crops. "
+                f"First missing: {missing[0]}",
+                stacklevel=2,
+            )
+        return result
 
     # ------------------------------------------------------------------
     # Internal
