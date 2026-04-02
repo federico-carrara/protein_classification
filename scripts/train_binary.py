@@ -78,7 +78,7 @@ ds.add_argument(
     help="Crop size in pixels. Defaults to img_size (no cropping)."
 )
 ds.add_argument(
-    "--num-crops", type=int, default=8,
+    "--num-crops", type=int, default=16,
     help="Number of crops sampled per source image."
 )
 
@@ -343,8 +343,6 @@ else:
     )
     val_bg_positions = val_analyzer.valid_positions_by_index
 
-
-# ── Data modules ─────────────────────────────────────────────────────
 train_dataset = BinaryDataset(
     inputs=train_data,
     split="train",
