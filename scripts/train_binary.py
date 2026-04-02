@@ -131,7 +131,7 @@ parser.add_argument(
 
 # --- training ---
 tr = parser.add_argument_group("training")
-tr.add_argument("--batch_size", type=int, default=32)
+tr.add_argument("--batch-size", type=int, default=32)
 tr.add_argument(
     "--acc-batches", type=int, default=1,
     help="Gradient accumulation steps."

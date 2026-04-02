@@ -8,7 +8,6 @@
 # %% Imports
 import random
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -20,14 +19,14 @@ from protein_classification.data import BinaryDataset
 
 # %% Parameters
 DATA_DIR = "/group/jug/federico/data/CellAtlas"
-TARGET = "Mitochondria"
+TARGET = "Microtubules"
 IMG_SIZE = 2048
 CROP_SIZE = 256
 N_PER_PAGE = 25
 N_COLS = 5
 POS_PROB = 0.5
 AUG = "geometric"  # None, "geometric", "intensity", "noise", or "all"
-BG_CACHE = None  # set to a JSON path to skip live background analysis
+BG_CACHE = "/group/jug/federico/data/CellAtlas/precomputed_bg_CellAtlas_NucMitEndMic_crop256_stride64.json"
 SEED = 0
 
 random.seed(SEED)
