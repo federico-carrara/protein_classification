@@ -89,10 +89,6 @@ bt.add_argument(
     help="Target label name for the positive class (e.g. 'Mitochondria')."
 )
 bt.add_argument(
-    "--pos-prob", type=float, default=0.5,
-    help="Probability of sampling a positive crop per draw."
-)
-bt.add_argument(
     "--neg-families", type=str, nargs="+",
     default=["trivial", "mixed", "inverted"],
     help="Negative families to enable."
@@ -296,7 +292,6 @@ print("-------------- Dataset Info --------------")
 print(f"Dataset            : {args.dataset}")
 print(f"Mode               : binary (target={args.target}, id={target_label_id})")
 print(f"Architecture       : {args.arch}")
-print(f"Positive prob      : {args.pos_prob}")
 print(f"Negative families  : {negative_family_weights}")
 print(f"Training samples   : {len(train_data)}")
 print(f"Validation samples : {len(val_data)}")
@@ -348,7 +343,6 @@ train_dataset = BinaryDataset(
     split="train",
     augmentation_config=train_aug_config,
     target_label=target_label_id,
-    positive_probability=args.pos_prob,
     negative_family_weights=negative_family_weights,
     img_size=IMG_SIZE,
     num_crops_per_image=args.num_crops,
@@ -365,7 +359,6 @@ val_dataset = BinaryDataset(
     split="test",
     augmentation_config=val_aug_config,
     target_label=target_label_id,
-    positive_probability=args.pos_prob,
     negative_family_weights=negative_family_weights,
     img_size=IMG_SIZE,
     num_crops_per_image=args.num_crops,

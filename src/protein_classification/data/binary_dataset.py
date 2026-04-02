@@ -1,4 +1,5 @@
 import random
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal, Optional, Sequence, Union
@@ -45,7 +46,6 @@ class BinaryDataset(Dataset):
         augmentation_config: DataAugmentationConfig,
         num_crops_per_image: int,
         target_label: int,
-        positive_probability: float = 0.5,
         negative_family_weights: Optional[dict[str, float]] = None,
         mixed_alpha_range: tuple[float, float] = (0.3, 0.7),
         mixed_num_sources: int = 2,
@@ -77,7 +77,6 @@ class BinaryDataset(Dataset):
         self.num_crops_per_image = num_crops_per_image
 
         self.target_label = int(target_label)
-        self.positive_probability = float(positive_probability)
         self.negative_family_weights = negative_family_weights or {
             "trivial": 1.0,
             "mixed": 1.0,
@@ -110,8 +109,6 @@ class BinaryDataset(Dataset):
     def _validate_binary_sampling_config(self) -> None:
         """Validate binary negative-sampling configuration."""
         valid_families = {"trivial", "mixed", "inverted"}
-        if not 0.0 <= self.positive_probability <= 1.0:
-            raise ValueError("`positive_probability` must be in [0, 1].")
         if self.mixed_num_sources < 2:
             raise ValueError("`mixed_num_sources` must be >= 2.")
         if len(self.mixed_alpha_range) != 2:
@@ -282,80 +279,102 @@ class BinaryDataset(Dataset):
         raise ValueError(f"Unknown family: {recipe.family}")
 
     def _build_epoch_plan(self) -> list[ImageRecipe]:
-        """Build a deterministic sampling plan for the current epoch.
+        """Build a balanced sampling plan for the current epoch.
 
         Each entry is a single :class:`ImageRecipe` specifying which image(s)
         to load and the family.  ``__getitem__`` extracts
         ``num_crops_per_image`` crops from the loaded image(s).
 
-        The epoch is sized by the minority (target) pool: entries are generated
-        until the target deck is exhausted.  Neither deck is replenished, so
-        every target image appears exactly once per epoch.  The non-target deck
-        is partially consumed; different subsets are covered across epochs
-        thanks to reshuffling.
+        The plan contains:
+        (a) one positive recipe per target image,
+        (b) an equal number of negative recipes, distributed across families
+            proportionally to ``negative_family_weights``.
+
+        Plan size is deterministic (``2 * len(target_indices)``), which keeps
+        ``__len__`` stable across epochs.
         """
         rng = random.Random(self._epoch)
+        n_pos = len(self.target_indices)
 
-        # Prepare shuffled decks (no replenishment)
+        # (a) All positives — one recipe per target image
         target_deck = list(self.target_indices)
         rng.shuffle(target_deck)
-        target_cursor = 0
+        positive_recipes = [
+            ImageRecipe(family="positive", source_indices=(idx,))
+            for idx in target_deck
+        ]
+
+        # (b) Negative recipes — same count as positives, split by family
+        families = list(self.negative_family_weights.keys())
+        weights = list(self.negative_family_weights.values())
+        total_weight = sum(weights)
+        family_counts: dict[str, int] = {}
+        assigned = 0
+        for fam, w in zip(families, weights):
+            count = round(n_pos * w / total_weight)
+            family_counts[fam] = count
+            assigned += count
+        # Distribute rounding remainder to the highest-weight family
+        if assigned != n_pos:
+            top_family = max(family_counts, key=lambda f: self.negative_family_weights[f])
+            family_counts[top_family] += n_pos - assigned
 
         non_target_deck = list(self.non_target_indices)
         rng.shuffle(non_target_deck)
         non_target_cursor = 0
 
-        def target_remaining() -> int:
-            return len(target_deck) - target_cursor
-
-        def non_target_remaining() -> int:
-            return len(non_target_deck) - non_target_cursor
-
-        def draw_target() -> int:
-            nonlocal target_cursor
-            idx = target_deck[target_cursor]
-            target_cursor += 1
-            return idx
+        # For inverted/mixed we need target images; reuse a separate shuffled
+        # copy so positives and negatives draw independently.
+        target_neg_deck = list(self.target_indices)
+        rng.shuffle(target_neg_deck)
+        target_neg_cursor = 0
 
         def draw_non_target() -> int:
-            nonlocal non_target_cursor
+            nonlocal non_target_deck, non_target_cursor
+            if non_target_cursor >= len(non_target_deck):
+                warnings.warn(
+                    f"non-target deck exhausted at epoch {self._epoch} — reshuffling. "
+                    "Consider increasing the non-target pool or reducing "
+                    "mixed_num_sources.",
+                    stacklevel=2,
+                )
+                rng.shuffle(non_target_deck)
+                non_target_cursor = 0
             idx = non_target_deck[non_target_cursor]
             non_target_cursor += 1
             return idx
 
-        families = list(self.negative_family_weights.keys())
-        weights = list(self.negative_family_weights.values())
-
-        plan: list[ImageRecipe] = []
-        while True:
-            if rng.random() < self.positive_probability:
-                if target_remaining() < 1:
-                    break
-                recipe = ImageRecipe(
-                    family="positive",
-                    source_indices=(draw_target(),),
+        def draw_target_for_neg() -> int:
+            nonlocal target_neg_deck, target_neg_cursor
+            if target_neg_cursor >= len(target_neg_deck):
+                warnings.warn(
+                    f"target-for-neg deck exhausted at epoch {self._epoch} — reshuffling. "
+                    "This means inverted + mixed families together request more "
+                    "target images than available.",
+                    stacklevel=2,
                 )
-            else:
-                family = rng.choices(families, weights=weights, k=1)[0]
+                rng.shuffle(target_neg_deck)
+                target_neg_cursor = 0
+            idx = target_neg_deck[target_neg_cursor]
+            target_neg_cursor += 1
+            return idx
+
+        negative_recipes: list[ImageRecipe] = []
+        for family, count in family_counts.items():
+            for _ in range(count):
                 if family == "trivial":
-                    if non_target_remaining() < 1:
-                        break
                     recipe = ImageRecipe(
                         family="trivial",
                         source_indices=(draw_non_target(),),
                     )
                 elif family == "inverted":
-                    if target_remaining() < 1:
-                        break
                     recipe = ImageRecipe(
                         family="inverted",
-                        source_indices=(draw_target(),),
+                        source_indices=(draw_target_for_neg(),),
                     )
                 elif family == "mixed":
                     num_aux = rng.randint(1, self.mixed_num_sources - 1)
-                    if target_remaining() < 1 or non_target_remaining() < num_aux:
-                        break
-                    target_idx = draw_target()
+                    target_idx = draw_target_for_neg()
                     aux_indices = tuple(
                         draw_non_target() for _ in range(num_aux)
                     )
@@ -367,8 +386,11 @@ class BinaryDataset(Dataset):
                     )
                 else:
                     raise ValueError(f"Unknown negative family: {family}")
-            plan.append(recipe)
+                negative_recipes.append(recipe)
 
+        # Interleave and shuffle
+        plan = positive_recipes + negative_recipes
+        rng.shuffle(plan)
         return plan
 
     def set_epoch(self, epoch: int) -> None:
