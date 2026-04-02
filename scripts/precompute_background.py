@@ -13,6 +13,7 @@ python scripts/precompute_background.py \
     --dataset BioSR --crop-size 256 --stride 64 --output bg_biosr.json
 """
 import argparse
+import os
 
 from protein_classification.data.background import BackgroundAnalyzer
 from protein_classification.data.biosr import get_biosr_filepaths_and_labels
@@ -50,7 +51,7 @@ parser.add_argument(
     help="Override default image size for the dataset.",
 )
 parser.add_argument(
-    "--metrics", type=str, nargs="+", default=["std"],
+    "--metrics", type=str, nargs="+", default=["entropy"],
     choices=["std", "entropy"],
 )
 parser.add_argument("--quantile", type=float, default=0.1)
@@ -58,7 +59,7 @@ parser.add_argument(
     "--max-images-for-thresholds", type=int, default=50,
     help="Max images used for threshold estimation. 0 = use all.",
 )
-parser.add_argument("--output", type=str, required=True, help="Output JSON path.")
+parser.add_argument("--outdir", type=str, required=True, help="Output directory for JSON file.")
 
 args = parser.parse_args()
 
@@ -94,6 +95,9 @@ analyzer = BackgroundAnalyzer(
     max_images_for_thresholds=max_imgs,
 )
 
-analyzer.save(args.output)
-print(f"\nSaved to: {args.output}")
+labels_str = "".join(l[:3].capitalize() for l in defaults["labels"])
+fname = f"precomputed_bg_{args.dataset}_{labels_str}_crop{args.crop_size}_stride{stride}.json"
+output_fpath = os.path.join(args.outdir, fname)
+analyzer.save(output_fpath)
+print(f"\nSaved to: {output_fpath}")
 print(f"Thresholds: {analyzer.thresholds_by_label}")
