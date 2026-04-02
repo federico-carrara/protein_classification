@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 from protein_classification.config.data import DataAugmentationConfig
+from protein_classification.data.background import BackgroundAnalyzer
 from protein_classification.data.cellatlas import get_cellatlas_filepaths_and_labels
 from protein_classification.data import BinaryDataset
 
@@ -35,7 +36,9 @@ torch.manual_seed(SEED)
 print(f"\nLoading CellAtlas data from: {DATA_DIR}")
 inputs, labels_dict = get_cellatlas_filepaths_and_labels(
     data_dir=DATA_DIR,
-    extra_labels=["Mitochondria"],
+    labels=[
+        "Nucleus", "Mitochondria", "Microtubules", "Endoplasmic reticulum",
+    ],
 )
 
 if TARGET not in labels_dict:
@@ -48,7 +51,22 @@ print(f"Total inputs: {len(inputs)}")
 aug_config = DataAugmentationConfig(
     transform=AUG,
     crop_size=CROP_SIZE,
-    random_crop=True,
+)
+
+BG_STRIDE = CROP_SIZE // 4
+
+analyzer = BackgroundAnalyzer(
+    inputs=inputs,
+    crop_size=CROP_SIZE,
+    stride=BG_STRIDE,
+    img_size=IMG_SIZE,
+    metrics=["std"],
+    quantiles_by_label={
+        labels_dict["Mitochondria"]: 0.1,
+        labels_dict["Nucleus"]: 0.25,
+        labels_dict["Microtubules"]: 0.1,
+        labels_dict["Endoplasmic reticulum"]: 0.1,
+    },
 )
 
 dataset = BinaryDataset(
@@ -60,12 +78,8 @@ dataset = BinaryDataset(
     target_label=target_label,
     positive_probability=POS_PROB,
     negative_family_weights={"trivial": 1.0, "mixed": 0.0, "inverted": 0.0},
-    background_threshold_quantiles_by_label={
-        labels_dict["Mitochondria"]: 0.1,
-        labels_dict["Nucleus"]: 0.25,
-        labels_dict["Microtubules"]: 0.1,
-        labels_dict["Endoplasmic reticulum"]: 0.1,
-    },
+    valid_crop_positions=analyzer.valid_positions_by_index,
+    crop_position_jitter=BG_STRIDE // 2,
     return_label=True,
 )
 
@@ -95,7 +109,7 @@ def _to_display(crop: torch.Tensor) -> np.ndarray:
 
 FAMILY_COLOR = {
     "positive": "#2ca02c",   # green
-    "trivial":     "#d62728",   # red
+    "trivial":  "#d62728",   # red
     "mixed":    "#ff7f0e",   # orange
     "inverted": "#9467bd",   # purple
 }
