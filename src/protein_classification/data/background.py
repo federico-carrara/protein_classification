@@ -70,7 +70,7 @@ class BackgroundAnalyzer:
         crop_size: int,
         stride: int,
         img_size: int,
-        metrics: list[Literal["std", "entropy"]],
+        metrics: list[Literal["std", "entropy"]] = "entropy",
         quantile: float = 0.1,
         quantiles_by_label: Optional[dict[int, float]] = None,
         max_images_for_thresholds: Optional[int] = 50,
