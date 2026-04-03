@@ -54,6 +54,10 @@ class DataConfig(BaseModel):
     """List of labels to pick. This is used to map the integer labels to their
     string names."""
     
+    target_label: str
+    """The name of the target label for binary classification. Must be one of
+    the labels in `labels`."""
+    
     img_size: int
     """Size to which images will be resized."""
     
@@ -80,23 +84,12 @@ class DataConfig(BaseModel):
     """Pre-computed dataset statistics (mean, std) or (min, max) for normalization.
     Required when `normalize` is specified and `normalization_scope='dataset'`."""
 
-    background_rejection_prob: float = 1.0
-    """Probability of rejecting a low-signal crop during binary sampling."""
-
-    background_threshold_quantile: float = 0.1
-    """Quantile used to precompute per-label background thresholds."""
-
-    background_threshold_quantiles_by_label: Optional[dict[int, float]] = None
-    """Optional per-label quantiles used instead of the global quantile."""
-
-    background_threshold_samples_per_image: int = 4
-    """Number of random crops per image used when estimating thresholds."""
-
-    background_threshold_max_images: Optional[int] = 50
-    """Optional cap on images used per dataset when estimating thresholds."""
-
-    background_metrics: list[Literal["std", "entropy"]] = ["entropy"]
-    """Metrics combined to score crop foreground signal for background rejection."""
+    background_cache_dir: Optional[PathLike] = None
+    """Optional directory to cache precomputed background thresholds."""
+    
+    negative_family_weights: Optional[dict[str, float]] = None
+    """Optional dictionary mapping negative family names to their sampling weights. If `None`,
+    all negative families are sampled with equal probability."""
     
     train_augmentation_config: Optional[DataAugmentationConfig] = None
     """Configuration for data augmentation, including cropping and transformations."""
@@ -106,6 +99,16 @@ class DataConfig(BaseModel):
 
     test_augmentation_config: Optional[DataAugmentationConfig] = None
     """Configuration for test data augmentation. If `None`, no augmentation is applied."""
+    
+    @model_validator(mode='after')
+    def validate_target_label(self: Self) -> Self:
+        """Validate that the target label is in the list of labels."""
+        if self.target_label not in self.labels:
+            raise ValueError(
+                f"`target_label` must be one of the labels in `labels`. "
+                f"Got target_label={self.target_label} and labels={self.labels}."
+            )
+        return self
 
     @model_validator(mode='after')
     def validate_normalization(self: Self) -> Self:

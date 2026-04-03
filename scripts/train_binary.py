@@ -78,7 +78,7 @@ ds.add_argument(
     help="Crop size in pixels. Defaults to img_size (no cropping)."
 )
 ds.add_argument(
-    "--num-crops", type=int, default=16,
+    "--num-crops", type=int, default=4,
     help="Number of crops sampled per source image."
 )
 
@@ -209,6 +209,7 @@ val_aug_config = train_aug_config.model_copy(update={"transform": None})
 data_config = DataConfig(
     data_dir=DATA_DIR,
     labels=LABELS,
+    target_label=args.target,
     img_size=IMG_SIZE,
     train_augmentation_config=train_aug_config,
     val_augmentation_config=val_aug_config,
@@ -216,6 +217,8 @@ data_config = DataConfig(
     normalize=args.norm_type,
     normalization_scope=args.norm_scope,
     dataset_stats=dataset_stats,
+    background_cache_dir=args.bg_cache,
+    negative_family_weights=negative_family_weights,
 )
 
 # --- model config ---
@@ -249,7 +252,7 @@ else:
 # times, and each time it will return N crops from the same
 # image, which will be collated together by the `collate_fn`
 # to form an actual batch of size B.
-dloader_batch_size = args.batch_size / args.num_crops
+dloader_batch_size = args.batch_size // args.num_crops
 training_config = TrainingConfig(
     max_epochs=args.epochs,
     lr=args.lr,
@@ -278,9 +281,7 @@ elif args.dataset == "BioSR":
         data_dir=DATA_DIR, labels=LABELS,
     )
 
-if args.target not in curr_labels:
-    parser.error(f"--target '{args.target}' not in available labels: {list(curr_labels)}")
-target_label_id = curr_labels[args.target]
+target_label_id = curr_labels[data_config.target_label]
 
 if args.debug:
     input_data = input_data[:20]
@@ -322,8 +323,8 @@ else:
         crop_size=train_aug_config.crop_size,
         stride=bg_stride,
         img_size=IMG_SIZE,
-        metrics=data_config.background_metrics or ["std"],
-        quantile=data_config.background_threshold_quantile,
+        metrics="entropy",
+        quantile=0.1,
         quantiles_by_label=defaults.get("background_threshold_quantiles_by_label"),
     )
     train_bg_positions = train_analyzer.valid_positions_by_index
@@ -333,7 +334,6 @@ else:
         crop_size=val_aug_config.crop_size,
         stride=bg_stride,
         img_size=IMG_SIZE,
-        metrics=data_config.background_metrics or ["std"],
         thresholds_by_label=train_analyzer.thresholds_by_label,
     )
     val_bg_positions = val_analyzer.valid_positions_by_index
