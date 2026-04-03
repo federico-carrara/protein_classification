@@ -19,10 +19,7 @@ from torch import Tensor
 from tqdm import tqdm
 
 from protein_classification.data.utils import (
-    compute_background_score,
-    crop_img,
-    normalize_img,
-    resize_img,
+    compute_background_score, resize_img,
 )
 
 PathLike = Union[Path, str]
