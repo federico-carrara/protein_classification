@@ -1,3 +1,4 @@
 from .binary_dataset import BinaryDataset
+from .binary_eval_dataset import BinaryEvalDataset
 from .multiclass_dataset import MultiClassDataset
 from .lambdaSplit_preds_dataset import LambdaSplitPredsDataset
