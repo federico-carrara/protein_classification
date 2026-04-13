@@ -18,7 +18,9 @@ TARGET_CHANNEL = 0
 CROP_SIZE = 256
 OVERLAP = CROP_SIZE // 4
 N_IMGS = 20             # how many multichannel images to sample from each source
-BG_STD_QUANTILE = 0.0  # pre-filter blank patches; 0.0 = disabled
+
+# Background patch filtering.
+BG_STD_QUANTILE = 0.1  # e.g. 0.1 drops the lowest-std 10% of GT patches
 
 # --- Normalization to evaluate ---
 # Pick one background method: None | "bg-mode" | "bg-lowperc-mean" | "bg-lowperc-median"
@@ -195,25 +197,37 @@ def extract_patches_from_images(
     channel: int,
     crop_size: int,
     overlap: int,
-    bg_std_quantile: float = 0.0,
+    std_threshold: float = 0.0,
 ) -> list[np.ndarray]:
-    """Return a list of raw (unnormalised) float32 patches for the given channel."""
+    """Return a list of raw (unnormalised) float32 patches for the given channel.
+
+    ``std_threshold`` is an *absolute* std value — patches with std below this
+    are dropped.  Pass 0.0 to keep all patches.  Derive the threshold from GT
+    patches first (see loading cell) so the same cutoff is applied to every
+    source domain consistently.
+    """
     all_patches = []
     for img in images:
         ch_img = img[channel].astype(np.float32)
         h, w = ch_img.shape
-        patches_with_std = []
         for y, x in _grid_positions(h, w, crop_size, overlap):
             patch = ch_img[y : y + crop_size, x : x + crop_size]
-            patches_with_std.append((patch, patch.std()))
-
-        if bg_std_quantile > 0 and patches_with_std:
-            stds = np.array([s for _, s in patches_with_std])
-            threshold = np.quantile(stds, bg_std_quantile)
-            patches_with_std = [(p, s) for p, s in patches_with_std if s >= threshold]
-
-        all_patches.extend(p for p, _ in patches_with_std)
+            if std_threshold > 0 and patch.std() < std_threshold:
+                continue
+            all_patches.append(patch)
     return all_patches
+
+
+def derive_std_threshold(images: list[np.ndarray], channel: int, crop_size: int, overlap: int, quantile: float) -> float:
+    """Compute absolute std threshold from a *reference* set of images at the given quantile."""
+    stds = []
+    for img in images:
+        ch_img = img[channel].astype(np.float32)
+        h, w = ch_img.shape
+        for y, x in _grid_positions(h, w, crop_size, overlap):
+            patch = ch_img[y : y + crop_size, x : x + crop_size]
+            stds.append(patch.std())
+    return float(np.quantile(stds, quantile)) if stds else 0.0
 
 
 def load_multichannel_images(data_path: Path, num_imgs: int = None) -> list[np.ndarray]:
@@ -241,9 +255,28 @@ print(f"  GT:              {len(gt_images)} images")
 print(f"  λSplit Final:    {len(lsf_images)} images")
 print(f"  λSplit Early:    {len(lse_images)} images" if lse_images else "  λSplit Early:    (not provided)")
 
-gt_patches  = extract_patches_from_images(gt_images,  TARGET_CHANNEL, CROP_SIZE, OVERLAP, BG_STD_QUANTILE)
-lsf_patches = extract_patches_from_images(lsf_images, TARGET_CHANNEL, CROP_SIZE, OVERLAP, BG_STD_QUANTILE)
-lse_patches = extract_patches_from_images(lse_images, TARGET_CHANNEL, CROP_SIZE, OVERLAP, BG_STD_QUANTILE) if lse_images else []
+# Derive a separate absolute std threshold per source: images from different
+# domains have radically different intensity ranges, so the same absolute cutoff
+# would filter very different content across domains.  Using a per-source
+# quantile ensures each source drops the same *relative* fraction of its
+# flattest patches regardless of its intensity scale.
+def _patches_with_threshold(images, channel, crop_size, overlap, quantile):
+    thr = derive_std_threshold(images, channel, crop_size, overlap, quantile) if quantile > 0 else 0.0
+    patches = extract_patches_from_images(images, channel, crop_size, overlap, thr)
+    return patches, thr
+
+gt_patches,  gt_thr  = _patches_with_threshold(gt_images,  TARGET_CHANNEL, CROP_SIZE, OVERLAP, BG_STD_QUANTILE)
+lsf_patches, lsf_thr = _patches_with_threshold(lsf_images, TARGET_CHANNEL, CROP_SIZE, OVERLAP, BG_STD_QUANTILE)
+lse_patches, lse_thr = _patches_with_threshold(lse_images, TARGET_CHANNEL, CROP_SIZE, OVERLAP, BG_STD_QUANTILE) if lse_images else ([], 0.0)
+
+if BG_STD_QUANTILE > 0:
+    print(f"\nBG filter (quantile={BG_STD_QUANTILE}):")
+    print(f"  GT std threshold:          {gt_thr:.5f}")
+    print(f"  λSplit Final std threshold: {lsf_thr:.5f}")
+    if lse_images:
+        print(f"  λSplit Early std threshold: {lse_thr:.5f}")
+else:
+    print("\nBG filter: disabled")
 
 print(f"\nPatches extracted (channel {TARGET_CHANNEL}):")
 print(f"  GT patches:           {len(gt_patches)}")
