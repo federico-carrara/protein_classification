@@ -37,15 +37,15 @@ SCHEMES_TO_PLOT = [
     "perc_0.5_99.5",
     "perc_1_99",
     "perc_2_98",
-    "perc_5_95",
+    # "perc_5_95",
     "zscore",
     "zscore_clip2",
     "zscore_clip3",
-    "robust_zscore",
-    "robust_zscore_clip3",
-    "quantile_uniform",
-    "quantile_gaussian", 
-    "iqr",
+    # "robust_zscore",
+    # "robust_zscore_clip3",
+    # "quantile_uniform",
+    # "quantile_gaussian", 
+    # "iqr",
     "log_zscore",
 ]
 
@@ -194,21 +194,15 @@ def _grid_positions(h: int, w: int, crop_size: int, overlap: int):
 
 
 def extract_patches_from_images(
-    images: list[np.ndarray],
+    images: dict[int, np.ndarray],
     channel: int,
     crop_size: int,
     overlap: int,
     std_threshold: float = 0.0,
 ) -> list[np.ndarray]:
-    """Return a list of raw (unnormalised) float32 patches for the given channel.
-
-    ``std_threshold`` is an *absolute* std value — patches with std below this
-    are dropped.  Pass 0.0 to keep all patches.  Derive the threshold from GT
-    patches first (see loading cell) so the same cutoff is applied to every
-    source domain consistently.
-    """
+    """Return a list of raw (unnormalised) float32 patches for the given channel."""
     all_patches = []
-    for img in images:
+    for img in images.values():
         ch_img = img[channel].astype(np.float32)
         h, w = ch_img.shape
         for y, x in _grid_positions(h, w, crop_size, overlap):
@@ -219,10 +213,46 @@ def extract_patches_from_images(
     return all_patches
 
 
-def derive_std_threshold(images: list[np.ndarray], channel: int, crop_size: int, overlap: int, quantile: float) -> float:
+def extract_matched_patch_pairs(
+    images_a: dict[int, np.ndarray],
+    images_b: dict[int, np.ndarray],
+    channel: int,
+    crop_size: int,
+    overlap: int,
+    std_threshold_a: float = 0.0,
+    std_threshold_b: float = 0.0,
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Extract spatially matched patch pairs from two sources sharing image IDs.
+
+    Only images present in both dicts are used.  A pair is kept only when
+    *both* patches pass their respective std threshold (so the pair is either
+    kept or dropped together).
+    Returns (patches_a, patches_b) where patches_a[i] and patches_b[i] come
+    from the same image ID and the same grid position.
+    """
+    common_ids = sorted(set(images_a) & set(images_b))
+    pairs_a, pairs_b = [], []
+    for img_id in common_ids:
+        ch_a = images_a[img_id][channel].astype(np.float32)
+        ch_b = images_b[img_id][channel].astype(np.float32)
+        h = min(ch_a.shape[0], ch_b.shape[0])
+        w = min(ch_a.shape[1], ch_b.shape[1])
+        for y, x in _grid_positions(h, w, crop_size, overlap):
+            pa = ch_a[y : y + crop_size, x : x + crop_size]
+            pb = ch_b[y : y + crop_size, x : x + crop_size]
+            if std_threshold_a > 0 and pa.std() < std_threshold_a:
+                continue
+            if std_threshold_b > 0 and pb.std() < std_threshold_b:
+                continue
+            pairs_a.append(pa)
+            pairs_b.append(pb)
+    return pairs_a, pairs_b
+
+
+def derive_std_threshold(images: dict[int, np.ndarray], channel: int, crop_size: int, overlap: int, quantile: float) -> float:
     """Compute absolute std threshold from a *reference* set of images at the given quantile."""
     stds = []
-    for img in images:
+    for img in images.values():
         ch_img = img[channel].astype(np.float32)
         h, w = ch_img.shape
         for y, x in _grid_positions(h, w, crop_size, overlap):
@@ -231,44 +261,63 @@ def derive_std_threshold(images: list[np.ndarray], channel: int, crop_size: int,
     return float(np.quantile(stds, quantile)) if stds else 0.0
 
 
-def load_multichannel_images(data_path: Path, num_imgs: int = None) -> list[np.ndarray]:
+import re
+
+def load_multichannel_images(data_path: Path, num_imgs: int = None) -> dict[int, np.ndarray]:
+    """Load multichannel images keyed by their integer ID.
+
+    Naming convention:
+      .npz keys  : "img_{ID}_test"
+      GT filenames: "GT_img_{ID}_test.tif[f]"
+    Returns a dict {ID: array} so callers can intersect IDs across sources.
+    """
+    imgs = {}
     if data_path.suffix == ".npz":
         npz = np.load(data_path)
-        imgs = [npz[k] for k in npz.files]
+        for key in npz.files:
+            m = re.search(r"img_(\d+)_test", key)
+            if m:
+                imgs[int(m.group(1))] = npz[key]
     else:
-        imgs = []
         for fname in sorted(os.listdir(data_path)):
-            if fname.lower().endswith((".tif", ".tiff")):
-                imgs.append(tiff.imread(data_path / fname))
+            if not fname.lower().endswith((".tif", ".tiff")):
+                continue
+            m = re.search(r"img_(\d+)_test", fname)
+            if m:
+                imgs[int(m.group(1))] = tiff.imread(data_path / fname)
     if num_imgs is not None:
-        imgs = imgs[:num_imgs]
+        keys = sorted(imgs)[:num_imgs]
+        imgs = {k: imgs[k] for k in keys}
     return imgs
 
 
 # %% Load raw patches
 
 print("Loading images ...")
-gt_images     = load_multichannel_images(GT_DATA_PATH, N_IMGS)
-lsf_images    = load_multichannel_images(LAMBDASPLIT_FINAL_PATH, N_IMGS)
-lse_images    = load_multichannel_images(LAMBDASPLIT_EARLY_PATH, N_IMGS) if LAMBDASPLIT_EARLY_PATH else []
+gt_images  = load_multichannel_images(GT_DATA_PATH, N_IMGS)
+lsf_images = load_multichannel_images(LAMBDASPLIT_FINAL_PATH, N_IMGS)
+lse_images = load_multichannel_images(LAMBDASPLIT_EARLY_PATH, N_IMGS) if LAMBDASPLIT_EARLY_PATH else {}
 
-print(f"  GT:              {len(gt_images)} images")
-print(f"  λSplit Final:    {len(lsf_images)} images")
-print(f"  λSplit Early:    {len(lse_images)} images" if lse_images else "  λSplit Early:    (not provided)")
+print(f"  GT:              {len(gt_images)} images  (IDs: {sorted(gt_images)[:5]}{'...' if len(gt_images) > 5 else ''})")
+print(f"  λSplit Final:    {len(lsf_images)} images  (IDs: {sorted(lsf_images)[:5]}{'...' if len(lsf_images) > 5 else ''})")
+if lse_images:
+    print(f"  λSplit Early:    {len(lse_images)} images  (IDs: {sorted(lse_images)[:5]}{'...' if len(lse_images) > 5 else ''})")
+else:
+    print(f"  λSplit Early:    (not provided)")
 
-# Derive a separate absolute std threshold per source: images from different
-# domains have radically different intensity ranges, so the same absolute cutoff
-# would filter very different content across domains.  Using a per-source
-# quantile ensures each source drops the same *relative* fraction of its
-# flattest patches regardless of its intensity scale.
-def _patches_with_threshold(images, channel, crop_size, overlap, quantile):
-    thr = derive_std_threshold(images, channel, crop_size, overlap, quantile) if quantile > 0 else 0.0
-    patches = extract_patches_from_images(images, channel, crop_size, overlap, thr)
-    return patches, thr
+common_ids_lsf = sorted(set(gt_images) & set(lsf_images))
+common_ids_lse = sorted(set(gt_images) & set(lse_images)) if lse_images else []
+print(f"\n  Matched IDs (GT ∩ λSplit Final): {len(common_ids_lsf)}")
+if lse_images:
+    print(f"  Matched IDs (GT ∩ λSplit Early): {len(common_ids_lse)}")
 
-gt_patches,  gt_thr  = _patches_with_threshold(gt_images,  TARGET_CHANNEL, CROP_SIZE, OVERLAP, BG_STD_QUANTILE)
-lsf_patches, lsf_thr = _patches_with_threshold(lsf_images, TARGET_CHANNEL, CROP_SIZE, OVERLAP, BG_STD_QUANTILE)
-lse_patches, lse_thr = _patches_with_threshold(lse_images, TARGET_CHANNEL, CROP_SIZE, OVERLAP, BG_STD_QUANTILE) if lse_images else ([], 0.0)
+# Per-source std thresholds (different intensity ranges → separate thresholds)
+def _threshold(images, channel, crop_size, overlap, quantile):
+    return derive_std_threshold(images, channel, crop_size, overlap, quantile) if quantile > 0 else 0.0
+
+gt_thr  = _threshold(gt_images,  TARGET_CHANNEL, CROP_SIZE, OVERLAP, BG_STD_QUANTILE)
+lsf_thr = _threshold(lsf_images, TARGET_CHANNEL, CROP_SIZE, OVERLAP, BG_STD_QUANTILE)
+lse_thr = _threshold(lse_images, TARGET_CHANNEL, CROP_SIZE, OVERLAP, BG_STD_QUANTILE) if lse_images else 0.0
 
 if BG_STD_QUANTILE > 0:
     print(f"\nBG filter (quantile={BG_STD_QUANTILE}):")
@@ -279,11 +328,26 @@ if BG_STD_QUANTILE > 0:
 else:
     print("\nBG filter: disabled")
 
+# Unmatched patch pools (for histogram/metrics)
+gt_patches  = extract_patches_from_images(gt_images,  TARGET_CHANNEL, CROP_SIZE, OVERLAP, gt_thr)
+lsf_patches = extract_patches_from_images(lsf_images, TARGET_CHANNEL, CROP_SIZE, OVERLAP, lsf_thr)
+lse_patches = extract_patches_from_images(lse_images, TARGET_CHANNEL, CROP_SIZE, OVERLAP, lse_thr) if lse_images else []
+
+# Matched patch pairs (same image ID + same grid position, for the gallery)
+matched_gt_lsf, matched_lsf = extract_matched_patch_pairs(
+    gt_images, lsf_images, TARGET_CHANNEL, CROP_SIZE, OVERLAP, gt_thr, lsf_thr,
+)
+matched_gt_lse, matched_lse = extract_matched_patch_pairs(
+    gt_images, lse_images, TARGET_CHANNEL, CROP_SIZE, OVERLAP, gt_thr, lse_thr,
+) if lse_images else ([], [])
+
 print(f"\nPatches extracted (channel {TARGET_CHANNEL}):")
-print(f"  GT patches:           {len(gt_patches)}")
-print(f"  λSplit Final patches: {len(lsf_patches)}")
+print(f"  GT patches:                {len(gt_patches)}")
+print(f"  λSplit Final patches:      {len(lsf_patches)}")
+print(f"  Matched pairs (GT/Final):  {len(matched_gt_lsf)}")
 if lse_patches:
-    print(f"  λSplit Early patches: {len(lse_patches)}")
+    print(f"  λSplit Early patches:      {len(lse_patches)}")
+    print(f"  Matched pairs (GT/Early):  {len(matched_gt_lse)}")
 
 
 # %% Apply background subtraction + normalizations and collect pixel samples
@@ -440,69 +504,94 @@ plt.show()
 
 # %% Patch gallery — same patches across all normalization schemes
 
+def _norm_patches(raw_list, fn, bg_method, bg_perc, bg_clip_neg):
+    out = []
+    for p in raw_list:
+        p = p.copy()
+        if bg_method is not None:
+            p = subtract_background(p, bg_method, bg_perc, bg_clip_neg)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            p = fn(p)
+        out.append(p)
+    return out
+
+
 def plot_patch_gallery(
-    patches: list[np.ndarray],
+    patches_a: list[np.ndarray],
+    patches_b: list[np.ndarray],
     schemes: list[str],
     bg_method,
     bg_perc: float,
     bg_clip_neg: bool,
-    source_label: str,
+    label_a: str = "GT",
+    label_b: str = "λSplit",
     n_cols: int = 5,
     seed: int = 0,
 ) -> None:
-    """One figure per source.
+    """One figure per normalization scheme.
 
-    Rows = normalization schemes, columns = the same n_cols randomly sampled
-    patches.  Because the same raw patches appear in every row, differences
-    between rows are purely due to the normalization.  The colormap range is
-    set independently per row (per-scheme vmin/vmax) so each scheme uses its
-    own natural range.
+    patches_a[i] / patches_b[i] are matched pairs (same image, same position).
+    A random subset of n_cols pairs is selected once and shared across all figures,
+    so columns are consistent across schemes.
+
+    Layout per figure:
+      row 0 = label_a (GT)
+      row 1 = label_b (λSplit)
+      cols  = n_cols matched pairs
+
+    vmin/vmax is shared across both rows so brightness differences are visible.
     """
     rng = np.random.default_rng(seed)
-    n_cols = min(n_cols, len(patches))
-    idxs = rng.choice(len(patches), size=n_cols, replace=False)
-    raw_selected = [patches[i].copy() for i in idxs]
-
-    n_rows = len(schemes)
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(2.5 * n_cols, 2.5 * n_rows))
-    axes = np.array(axes).reshape(n_rows, n_cols)
-
-    for row_idx, scheme_name in enumerate(schemes):
-        fn = NORM_SCHEMES[scheme_name]
-        normed = []
-        for p in raw_selected:
-            p = p.copy()
-            if bg_method is not None:
-                p = subtract_background(p, bg_method, bg_perc, bg_clip_neg)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                p = fn(p)
-            normed.append(p)
-
-        # Per-row colormap range so each scheme fills the display range naturally
-        all_vals = np.concatenate([p.ravel() for p in normed])
-        vmin, vmax = np.percentile(all_vals, 1), np.percentile(all_vals, 99)
-
-        for col_idx, p in enumerate(normed):
-            ax = axes[row_idx, col_idx]
-            ax.imshow(p, cmap="gray", vmin=vmin, vmax=vmax)
-            ax.set_xticks([])
-            ax.set_yticks([])
-
-        axes[row_idx, 0].set_ylabel(scheme_name, fontsize=8, rotation=0, ha="right", labelpad=4)
+    n_pairs = min(n_cols, len(patches_a))
+    idxs = rng.choice(len(patches_a), size=n_pairs, replace=False)
+    raw_a = [patches_a[i].copy() for i in idxs]
+    raw_b = [patches_b[i].copy() for i in idxs]
 
     bg_tag = f" | bg={bg_method}" if bg_method else ""
-    fig.suptitle(f"Patch gallery — {source_label}{bg_tag}\n(same patches, rows = normalization schemes)", fontsize=11)
-    plt.tight_layout()
-    plt.show()
+
+    for scheme_name in schemes:
+        fn = NORM_SCHEMES[scheme_name]
+        normed_a = _norm_patches(raw_a, fn, bg_method, bg_perc, bg_clip_neg)
+        normed_b = _norm_patches(raw_b, fn, bg_method, bg_perc, bg_clip_neg)
+
+        # Shared colormap range so brightness differences between sources are visible
+        all_vals = np.concatenate([p.ravel() for p in normed_a + normed_b])
+        vmin, vmax = np.percentile(all_vals, 1), np.percentile(all_vals, 99)
+
+        fig, axes = plt.subplots(2, n_pairs, figsize=(2.5 * n_pairs, 5.5))
+        axes = np.array(axes).reshape(2, n_pairs)
+
+        for col_idx, (pa, pb) in enumerate(zip(normed_a, normed_b)):
+            axes[0, col_idx].imshow(pa, cmap="gray", vmin=vmin, vmax=vmax)
+            axes[1, col_idx].imshow(pb, cmap="gray", vmin=vmin, vmax=vmax)
+            for row in range(2):
+                axes[row, col_idx].set_xticks([])
+                axes[row, col_idx].set_yticks([])
+
+        axes[0, 0].set_ylabel(label_a, fontsize=10)
+        axes[1, 0].set_ylabel(label_b, fontsize=10)
+
+        fig.suptitle(f"{scheme_name}{bg_tag}  —  {label_a} vs {label_b}", fontsize=12)
+        plt.tight_layout()
+        plt.show()
 
 
-bg_tag = f" | bg={BG_METHOD}" if BG_METHOD else ""
-
-plot_patch_gallery(gt_patches,  SCHEMES_TO_PLOT, BG_METHOD, BG_PERC, BG_CLIP_NEG, source_label="GT",           n_cols=5)
-plot_patch_gallery(lsf_patches, SCHEMES_TO_PLOT, BG_METHOD, BG_PERC, BG_CLIP_NEG, source_label="λSplit Final", n_cols=5)
-if lse_patches:
-    plot_patch_gallery(lse_patches, SCHEMES_TO_PLOT, BG_METHOD, BG_PERC, BG_CLIP_NEG, source_label="λSplit Early", n_cols=5)
+plot_patch_gallery(
+    matched_gt_lsf, matched_lsf,
+    schemes=SCHEMES_TO_PLOT,
+    bg_method=BG_METHOD, bg_perc=BG_PERC, bg_clip_neg=BG_CLIP_NEG,
+    label_a="GT", label_b="λSplit Final",
+    n_cols=5,
+)
+if matched_gt_lse:
+    plot_patch_gallery(
+        matched_gt_lse, matched_lse,
+        schemes=SCHEMES_TO_PLOT,
+        bg_method=BG_METHOD, bg_perc=BG_PERC, bg_clip_neg=BG_CLIP_NEG,
+        label_a="GT", label_b="λSplit Early",
+        n_cols=5,
+    )
 
 
 # %% Moment differences radar / table view
