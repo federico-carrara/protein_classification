@@ -6,16 +6,17 @@
 # Evaluation: overlay histograms, Wasserstein-1 distance, moment differences.
 
 # %% Parameters
+import os
 from pathlib import Path
 
 # --- Data paths ---
 GT_DATA_PATH = Path("/group/jug/federico/data/simulated_spectral/CellAtlas/2602/sim_data_CellAtlas_2048px_n300_bands3_pwr32_Mito/GT/test")
-LAMBDASPLIT_FINAL_PATH = Path("/group/jug/federico/lambdasplit_training/2602/lambdasplit_CellAtlas_LVAE_4FP_2D/103/predictions_MMSE_50/pred_imgs.npz")
+LAMBDASPLIT_FINAL_PATH = Path("/group/jug/federico/lambdasplit_training/2604/lambdasplit_CellAtlas_LVAE_4FP_2D/10/predictions_MMSE_5/pred_imgs.npz")
 LAMBDASPLIT_EARLY_PATH = None
 # LAMBDASPLIT_EARLY_PATH = Path("/group/jug/federico/lambdasplit_training/2604/lambdasplit_CellAtlas_LVAE_4FP_2D/10/predictions_MMSE_5/pred_imgs.npz")
 
 # --- Dataset ---
-TARGET_CHANNEL = 0
+TARGET_CHANNEL = int(os.getenv("TARGET_CHANNEL", "3"))  # set env var to sweep channels
 CROP_SIZE = 256
 OVERLAP = CROP_SIZE // 4
 N_IMGS = 20             # how many multichannel images to sample from each source
@@ -46,20 +47,35 @@ SCHEMES_TO_PLOT = [
     # "quantile_uniform",
     # "quantile_gaussian", 
     # "iqr",
-    "log_zscore",
+    # "log_zscore",
 ]
 
 N_HIST_BINS = 60        # histogram bins for overlay plots
 
 
 # %% Imports
-import os
 import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 import tifffile as tiff
+from matplotlib.backends.backend_pdf import PdfPages
 from scipy.stats import wasserstein_distance, skew, kurtosis
 from scipy.special import ndtri  # inverse normal CDF
+
+
+OUTPUT_PDF_PATH = os.getenv("OUTPUT_PDF_PATH")
+_pdf = PdfPages(OUTPUT_PDF_PATH) if OUTPUT_PDF_PATH else None
+
+
+def _show_or_save_current_figure() -> None:
+    if _pdf is None:
+        plt.show()
+        return
+    _pdf.savefig(plt.gcf(), bbox_inches="tight")
+    plt.close(plt.gcf())
+
+
+plt.show = _show_or_save_current_figure
 
 
 # %% Normalization functions
@@ -527,7 +543,6 @@ def plot_patch_gallery(
     label_a: str = "GT",
     label_b: str = "λSplit",
     n_cols: int = 5,
-    seed: int = 0,
 ) -> None:
     """One figure per normalization scheme.
 
@@ -542,7 +557,7 @@ def plot_patch_gallery(
 
     vmin/vmax is shared across both rows so brightness differences are visible.
     """
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng()
     n_pairs = min(n_cols, len(patches_a))
     idxs = rng.choice(len(patches_a), size=n_pairs, replace=False)
     raw_a = [patches_a[i].copy() for i in idxs]
@@ -613,5 +628,9 @@ for ax, key, label in zip(axes, moment_keys, moment_labels):
 fig.suptitle(f"Moment differences (GT vs λSplit Final) — channel {TARGET_CHANNEL}{bg_tag}", fontsize=13)
 plt.tight_layout()
 plt.show()
+
+# Finalize PDF export once all figures have been emitted.
+if _pdf is not None:
+    _pdf.close()
 
 # %%
