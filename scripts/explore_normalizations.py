@@ -10,8 +10,9 @@ from pathlib import Path
 
 # --- Data paths ---
 GT_DATA_PATH = Path("/group/jug/federico/data/simulated_spectral/CellAtlas/2602/sim_data_CellAtlas_2048px_n300_bands3_pwr32_Mito/GT/test")
-LAMBDASPLIT_FINAL_PATH = Path("/group/jug/federico/lambdasplit_training/2604/lambdasplit_CellAtlas_LVAE_4FP_2D/11/predictions_MMSE_5/pred_imgs.npz")
-LAMBDASPLIT_EARLY_PATH = None   # set to a Path if you have an early-stage checkpoint npz, else None
+LAMBDASPLIT_FINAL_PATH = Path("/group/jug/federico/lambdasplit_training/2602/lambdasplit_CellAtlas_LVAE_4FP_2D/103/predictions_MMSE_50/pred_imgs.npz")
+LAMBDASPLIT_EARLY_PATH = None
+# LAMBDASPLIT_EARLY_PATH = Path("/group/jug/federico/lambdasplit_training/2604/lambdasplit_CellAtlas_LVAE_4FP_2D/10/predictions_MMSE_5/pred_imgs.npz")
 
 # --- Dataset ---
 TARGET_CHANNEL = 0
@@ -435,6 +436,73 @@ ax.invert_yaxis()
 ax.grid(axis="x", alpha=0.3)
 plt.tight_layout()
 plt.show()
+
+
+# %% Patch gallery — same patches across all normalization schemes
+
+def plot_patch_gallery(
+    patches: list[np.ndarray],
+    schemes: list[str],
+    bg_method,
+    bg_perc: float,
+    bg_clip_neg: bool,
+    source_label: str,
+    n_cols: int = 5,
+    seed: int = 0,
+) -> None:
+    """One figure per source.
+
+    Rows = normalization schemes, columns = the same n_cols randomly sampled
+    patches.  Because the same raw patches appear in every row, differences
+    between rows are purely due to the normalization.  The colormap range is
+    set independently per row (per-scheme vmin/vmax) so each scheme uses its
+    own natural range.
+    """
+    rng = np.random.default_rng(seed)
+    n_cols = min(n_cols, len(patches))
+    idxs = rng.choice(len(patches), size=n_cols, replace=False)
+    raw_selected = [patches[i].copy() for i in idxs]
+
+    n_rows = len(schemes)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(2.5 * n_cols, 2.5 * n_rows))
+    axes = np.array(axes).reshape(n_rows, n_cols)
+
+    for row_idx, scheme_name in enumerate(schemes):
+        fn = NORM_SCHEMES[scheme_name]
+        normed = []
+        for p in raw_selected:
+            p = p.copy()
+            if bg_method is not None:
+                p = subtract_background(p, bg_method, bg_perc, bg_clip_neg)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                p = fn(p)
+            normed.append(p)
+
+        # Per-row colormap range so each scheme fills the display range naturally
+        all_vals = np.concatenate([p.ravel() for p in normed])
+        vmin, vmax = np.percentile(all_vals, 1), np.percentile(all_vals, 99)
+
+        for col_idx, p in enumerate(normed):
+            ax = axes[row_idx, col_idx]
+            ax.imshow(p, cmap="gray", vmin=vmin, vmax=vmax)
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+        axes[row_idx, 0].set_ylabel(scheme_name, fontsize=8, rotation=0, ha="right", labelpad=4)
+
+    bg_tag = f" | bg={bg_method}" if bg_method else ""
+    fig.suptitle(f"Patch gallery — {source_label}{bg_tag}\n(same patches, rows = normalization schemes)", fontsize=11)
+    plt.tight_layout()
+    plt.show()
+
+
+bg_tag = f" | bg={BG_METHOD}" if BG_METHOD else ""
+
+plot_patch_gallery(gt_patches,  SCHEMES_TO_PLOT, BG_METHOD, BG_PERC, BG_CLIP_NEG, source_label="GT",           n_cols=5)
+plot_patch_gallery(lsf_patches, SCHEMES_TO_PLOT, BG_METHOD, BG_PERC, BG_CLIP_NEG, source_label="λSplit Final", n_cols=5)
+if lse_patches:
+    plot_patch_gallery(lse_patches, SCHEMES_TO_PLOT, BG_METHOD, BG_PERC, BG_CLIP_NEG, source_label="λSplit Early", n_cols=5)
 
 
 # %% Moment differences radar / table view
